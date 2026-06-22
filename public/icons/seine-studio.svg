@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">Seine Studio</title>
+  <rect width="512" height="512" fill="#17140f"/>
+  <path d="M352 122c-28-20-63-31-101-31-75 0-127 38-127 94 0 53 43 76 122 96 54 14 74 27 74 52 0 28-28 46-72 46-43 0-83-15-119-44v66c32 20 73 31 119 31 83 0 140-41 140-105 0-54-39-79-124-101-52-14-72-25-72-48 0-24 24-40 62-40 35 0 68 11 98 32z" fill="#faf7f0"/>
+  <path d="M85 84h342M85 428h342" stroke="#b8975a" stroke-width="8"/>
+</svg>

@@ -1,12 +1,27 @@
-# Jewelry Atelier Operations Platform
+# Seine Studio Operations Platform
 
 ## Project Purpose
 
-Build a focused operations dashboard for an independent fine-jewelry brand based in Manila. The product may take functional inspiration from Gem Logic, but it must be intentionally scaled for a founder-led starter brand rather than copied as an enterprise jewelry-management suite.
+Build a focused progressive web application for **Seine Studio**, an independent jewelry brand based in Manila. The product may take functional inspiration from Gem Logic, but it must be intentionally scaled for a founder-led starter brand rather than copied as an enterprise jewelry-management suite.
 
 The platform should give the owner one calm, reliable place to manage pieces, clients, commissions, payments, expenses, certificates, repairs, and business performance. It is an internal business application first. A public storefront or marketing website is outside the initial scope unless added later as a separate product surface.
 
-The working brand name in the prototype, `GemLogic Atelier`, is placeholder copy. Future agents must keep brand identity configurable and must not present the product as affiliated with Gem Logic.
+`GemLogic Atelier` is obsolete prototype copy and must be replaced with `Seine Studio`. The product is not affiliated with Gem Logic.
+
+### Current Scope Boundary
+
+This is a private personal operations tool for exactly two approved users: the Seine Studio owner and the developer/support user. It is not a SaaS product and does not need public registration, multiple brands, customer accounts, organization management, or enterprise permissions in its current form.
+
+The current product should:
+
+- Keep operational and financial records in one private application.
+- Prefer free tiers and services already paid for by the users.
+- Use Neon Postgres Free initially or connect to the existing paid Neon account later without changing the domain model.
+- Generate editable HTML/text templates for quotes, invoices, certificates, and Instagram replies.
+- Support browser printing and copy-to-clipboard, but not generate PDFs yet.
+- Keep direct payment processing, client portals, and social-platform API automation out of the current build.
+
+Features outside this boundary are preserved in the Upgrade Roadmap rather than removed from the long-term product direction.
 
 ## Product Principles
 
@@ -17,6 +32,8 @@ The working brand name in the prototype, `GemLogic Atelier`, is placeholder copy
 5. **Trust through traceability.** Important changes, payments, handoffs, and status transitions should be dated and attributable.
 6. **Manila by default.** Use Philippine pesos, Philippine contact and address conventions, and `Asia/Manila` for stored/displayed business dates unless a user explicitly changes them.
 7. **Calculated truth.** Revenue, balances, inventory value, cost, margin, and profit should be derived from source records rather than manually duplicated.
+8. **Mobile at the point of work.** Core tasks must be comfortable on a phone at the workbench, during client meetings, and at handoff or delivery.
+9. **Free until reliability earns a bill.** Prefer a small number of integrated services with usable free tiers, but upgrade before free-tier sleep, retention, or backup limits create business risk.
 
 ## Design Rationale
 
@@ -35,6 +52,21 @@ For this dashboard, that means:
 - Data that feels curated. Each panel is a display case, not a storage bin.
 
 These principles are constraints, not a temporary theme. New features must inherit them.
+
+### Seine Studio Brand Direction
+
+The supplied Seine Studio mark is preserved at `public/brand/seine-logo-source.png`. It is a monochrome, vertically composed emblem with mirrored floral and sharp calligraphic forms. Its symmetry, tension, and black-on-white treatment can bridge French romanticism with brutalist structure.
+
+Use the brand with restraint:
+
+- Treat the mark as a signature or architectural seal, not a repeating decorative motif.
+- Pair delicate serif typography and botanical negative space with brutalist geometry: hard alignment, bold black planes, exposed grids, and decisive scale changes.
+- Keep the operational interface calmer than the public brand expression. Finance and inventory screens should privilege legibility over atmosphere.
+- Use high-contrast black and warm ivory as the primary brand relationship. Keep museum gold as an operational accent, not a logo effect.
+- Do not add faux-French ornament, marble textures, heavy shadows, or ornamental frames.
+- Preserve generous negative space around the emblem.
+
+The source PNG is 1234 x 1744 and includes a large white canvas, fine grain, translucent details, and very thin strokes. It is not suitable as-is for a favicon or PWA launcher icon. Before launch, create an approved simplified mark with a transparent background and optical variants for 16, 32, 180, 192, 512, and maskable-icon use. Do not auto-trace or crop the master and call it finished; the smallest sizes need deliberate redrawing and contrast testing.
 
 ### Existing Visual Foundation
 
@@ -60,14 +92,67 @@ Prefer semantic design tokens over repeating hex values in components. Status co
 - Do not rely on hover for essential actions; touch and keyboard users need visible access.
 - Every form needs labels, validation, useful empty states, and an explicit success or error result.
 - Preserve visible focus states and semantic HTML. Color alone must not communicate status.
-- Desktop is the main working environment, but all core workflows must remain usable on tablet and mobile.
+- Mobile is a first-class working environment. Desktop may show more context, but no core workflow may require a desktop viewport.
 - Respect reduced-motion preferences. Motion should clarify state, never decorate routine work.
+
+### Mobile Application Shell
+
+- Use a bottom navigation bar on phone with at most five destinations: Home, Projects, Inventory, Clients, and More.
+- Put contextual creation in a clearly labeled page action or bottom sheet; avoid a global unlabeled floating `+`.
+- Use single-column cards and summary rows below 768 px. Replace wide tables with sortable lists that open a detail screen or sheet.
+- Keep touch targets at least 44 x 44 CSS pixels and keep destructive actions away from primary thumb zones.
+- Support camera capture for receipts, piece condition, progress photos, and repair intake.
+- Make currency and calculator inputs numeric-keyboard friendly. Never hide units, rates, or the basis of a calculated amount.
+- Keep primary save/approve actions reachable when the on-screen keyboard is open.
+- Respect safe-area insets and test installed mode on iOS Safari and Android Chrome, not only responsive browser emulation.
+
+### Assisted Data Entry
+
+Use searchable comboboxes rather than long static dropdowns. A user should be able to type a client name, SKU, phone number, material, project number, quote number, or invoice number and see ranked suggestions immediately.
+
+Every assisted field must support:
+
+- Recent and frequently used records before the user types.
+- Search by human-readable name and stable identifier.
+- Useful context in each result, such as client location, available stock, quote status, or project deadline.
+- An inline `Create new` action when no suitable record exists.
+- Keyboard, touch, screen-reader, empty, loading, and no-result states.
+- Clear provenance labels such as `From accepted quote`, `Current inventory cost`, or `Last used rate`.
+- Manual override where the workflow permits it, with the override visibly marked and audited.
+
+Forms should progressively populate related data:
+
+- Selecting a client suggests contact and billing details, preferences, recent projects, and default payment terms.
+- Selecting a project constrains the client, piece, deadline, pricing version, and related documents.
+- Selecting an accepted quote populates an invoice with its immutable line-item snapshot, deposit terms, and client information.
+- Selecting an inventory item populates its unit, current cost, location, and available quantity without silently reserving stock.
+- Recording a payment recalculates invoice balance and reporting; it does not require the user to update totals elsewhere.
+- Completing a piece prepares a certificate draft from the project and catalog record for review.
+
+The user must review generated content before any quote is sent, invoice is finalized, payment is posted, certificate is issued, or stock is consumed. Assistance reduces re-entry; it does not remove accountability.
+
+On mobile, use short step flows such as `Client -> Items -> Payment -> Review`, autosave local drafts, keep the primary action above the keyboard, and put uncommon fields behind an `Additional details` disclosure. A live summary should remain available without forcing the user to leave the form.
+
+### Ownership, Onboarding, and Handoff
+
+The production application should live at a Seine Studio-controlled domain such as `app.seinestudio.com`. The business owner must control the production accounts, domain, billing, data, backups, and recovery methods. The developer receives the second allowlisted account; developer credentials must never be the owner's only route into the system.
+
+First-run onboarding should collect:
+
+1. Business identity, address, contact, invoice details, and timezone.
+2. Default currency, payment terms, deposit percentage, numbering rules, and accepted payment methods.
+3. Labor rate cards, design-fee defaults, packaging costs, and pricing templates.
+4. Initial clients, inventory, and open projects through reviewed import or guided entry.
+5. The owner and developer accounts, with public registration disabled.
+6. A sample quote-to-payment walkthrough using clearly labeled demo data.
+
+The owner should land on an onboarding checklist and three plain-language actions: `Create custom quote`, `Add client`, and `Record payment`. Include contextual help, a concise operating guide, data export, and a documented support path. Before handoff, verify domain ownership, production access, backup/restore, account recovery, privacy settings, and removal or reduction of developer access.
 
 ## Primary User
 
-The initial user is the owner-operator of an independent Manila jewelry brand who manages design, client communication, sourcing, production oversight, and finances. The architecture should permit staff roles later, but the MVP does not need enterprise permissions.
+The primary user is the owner-operator of an independent Manila jewelry brand who manages design, client communication, sourcing, production oversight, and finances. The only other current user is the developer/support user.
 
-Future roles may include owner/admin, studio staff, sales/client service, maker, and accountant. Sensitive cost, margin, and client data should eventually be permission-aware.
+Current access is an explicit two-email allowlist with `Owner` and `Developer` roles. Public signup must remain disabled. Studio staff, sales, maker, and accountant roles are upgrade features only.
 
 ## Core Information Architecture
 
@@ -80,10 +165,43 @@ Future roles may include owner/admin, studio staff, sales/client service, maker,
 7. **Documents** - certificates of authenticity and generated business documents.
 8. **Repairs** - intake, condition, custody, work, deadlines, charges, and release.
 9. **Reports** - revenue, receivables, pipeline, margins, expenses, and profit and loss.
+10. **Reply Templates** - reusable Instagram inquiry responses populated from client, pricing, availability, and policy data.
 
-Social-media planning exists in the current prototype but is not a core operational requirement. Keep it only after the jewelry and financial workflows are complete, or move it to a later optional module.
+The current Social Media prototype should be replaced or narrowed to the reply-template library. Scheduling, analytics, publishing, and direct Instagram integration remain optional upgrades.
 
 ## Functional Scope
+
+### 0. Custom Pricing Calculator
+
+The uploaded `Seine Studio Financials Tracker.xlsx - Custom Pricing Calculator.csv` is the initial reference for how Seine Studio prices custom work. The current model combines:
+
+- Material line items with description, unit cost, quantity, and extended cost.
+- Labor hours multiplied by an hourly rate.
+- A separate design fee.
+- A separate brand-value markup.
+- Packaging and polishing cloth as direct piece costs.
+- Net capital defined as materials plus labor plus design fee.
+- Total price and per-piece profit.
+
+Observed source values include labor rates of PHP 500/hour and PHP 1,500/hour, design fees of PHP 100 and PHP 800, brand-value additions around PHP 1,000 to PHP 1,700, packaging at PHP 150, and polishing cloth at PHP 16. These are historical examples, not global defaults. Store rates as editable, effective-dated inputs or per-quote snapshots.
+
+The source contains eight pricing blocks and materials such as pearls, jump rings, chain, carabiners, gemstones, silver, necklaces, packaging, and polishing cloth. It also contains incomplete prices, duplicate material names, inconsistent material subtotals, at least one `#VALUE!` result, and cases where a displayed quantity/rate does not agree with the displayed total. Import must therefore stage data for review rather than silently treating every cell as authoritative.
+
+Required calculator behavior:
+
+- Start from a named piece, client/project, pricing date, and optional version.
+- Add material rows from inventory or as one-off materials, with description, unit, quantity, unit cost, waste allowance, and calculated extended cost.
+- Add labor rows with task/maker, hours, hourly rate, and calculated labor cost.
+- Add design fee, packaging, outsourced work, overhead allocation, contingency, discount, and brand-value/creative markup as explicit rows or adjustments.
+- Support either a fixed markup amount or percentage, but label the basis clearly and never apply both accidentally.
+- Calculate `direct material cost`, `direct labor`, `design/creative cost`, `other direct cost`, `net capital/COGS`, `selling price`, `gross profit`, and `gross margin %` from canonical line items.
+- Warn when selling price is below cost, margin is zero/negative, a cost is missing, quantity is zero, or a manual override breaks the normal calculation.
+- Preserve the full calculation snapshot on every quote version so later inventory-rate changes do not rewrite historical pricing.
+- Allow a draft calculation to become a quote without re-entry, and allow an accepted quote to reserve or consume inventory through explicit movements.
+- Keep `brand value markup` as Seine Studio's commercial pricing input; do not misclassify it as an expense or material cost.
+- Present both pesos and percentages with full internal precision and deliberate display rounding.
+
+**Implementation status, June 21, 2026:** The first calculator slice is active inside Accounting > Pricing. It supports inventory and tracker-backed material suggestions, one-off cost lines, labor/design/packaging categories, fixed or percentage brand-value markup, discounts, manual selling-price overrides, live profit/margin warnings, project/client population, and conversion into a prefilled draft quote. Calculation outputs normalize to integer centavos. Four automated tests cover the Carlo tracker example, the inconsistent Niqui example, percentage markup, and manual price override. Persistence and immutable database-backed pricing versions remain future work.
 
 ### 1. Product Catalog and Inventory
 
@@ -132,17 +250,19 @@ Each project should support the client, target date, budget, design brief, refer
 - Set an expiry date, deposit amount or percentage, terms, and revision number.
 - Use statuses: `Draft`, `Sent`, `Viewed`, `Accepted`, `Declined`, `Expired`, and `Converted`.
 - Record acceptance and convert an accepted quote into a project and/or invoice without retyping data.
-- Prepare for a secure public acceptance and pay-by-link flow; provider selection is a later technical decision.
+- Render an editable branded HTML template with `Copy`, `Print`, and `Duplicate` actions.
+- Preserve public acceptance and pay-by-link as upgrade features; they are not part of the private MVP.
 
-### 5. Invoices and Payments
+### 5. Invoice Templates and Payment Records
 
-- Generate professional, branded invoices with stable document numbers and PDF output.
+- Generate professional, editable HTML invoice templates with stable document numbers, browser printing, copy, and duplication.
 - Use invoice statuses such as `Draft`, `Sent`, `Partially Paid`, `Paid`, `Overdue`, `Void`, and `Refunded`.
 - Record multiple payments against one invoice, including deposits and final balances.
 - Store payment date, amount, method, external reference, fees, and notes.
 - Support Philippine-friendly methods such as bank transfer, cash, card/payment link, GCash, and Maya without hard-coding a provider into the domain model.
 - Calculate balance due from invoice totals, credits, refunds, and payment records.
 - Never delete finalized financial records; void or reverse them with an audit trail.
+- PDF generation, automated email delivery, payment links, and payment-provider reconciliation are upgrade features.
 
 ### 6. Expenses
 
@@ -180,6 +300,36 @@ The overview should answer, at a glance:
 
 Reports must use selectable date ranges and clearly distinguish cash collected from invoiced revenue. Margin should be calculated from transaction-linked costs. P&L should initially be an internal management view, not presented as tax or statutory accounting advice.
 
+### 10. Instagram Inquiry Reply Templates
+
+Provide a private response library for common Instagram inquiries without connecting to the Instagram API. The user reviews the generated reply and manually copies it into Instagram.
+
+Initial categories:
+
+- Starting prices and budget guidance.
+- Custom-order process and consultation steps.
+- Deposits, balances, and accepted payment methods.
+- Available materials, metals, stones, and customization options.
+- Production lead times, rush work, and order status.
+- Pickup, delivery, and shipping.
+- Repairs, alterations, and aftercare.
+- Jewelry care and storage.
+- Availability, restocks, and ready-made pieces.
+
+Templates may use approved variables such as `{{client_name}}`, `{{piece_type}}`, `{{starting_price}}`, `{{deposit_percentage}}`, `{{lead_time}}`, `{{material}}`, and `{{pickup_location}}`.
+
+Required behavior:
+
+- Search or filter by question/category.
+- Populate variables from the selected client, project, pricing record, inventory, and current studio policies.
+- Clearly highlight missing variables before copy.
+- Allow editing without overwriting the source template.
+- Provide `Copy reply`, `Duplicate template`, and `Save as new version` actions.
+- Record optional usage history without storing Instagram credentials or message contents by default.
+- Keep direct inbox reading, automatic replies, scheduling, publishing, and analytics in the Upgrade Roadmap.
+
+**Implementation status, June 21, 2026:** The first private reply-library slice is active as a lazy-loaded `Reply Templates` route. It includes eight Seine Studio source templates, category filtering and search, approved-variable rendering, project-to-client and price suggestions, inventory material suggestions, editable studio policies, missing-variable warnings, editable generated copy, clipboard copy, duplication, and local version creation. Built-in source templates remain immutable. Custom templates and versions currently persist only in browser `localStorage`; move them to `ReplyTemplate` and `ReplyTemplateVersion` records in Neon when the database layer is introduced. Direct Instagram access, message storage, automation, publishing, analytics, and shared cross-device history remain deferred upgrades.
+
 ## Domain Model
 
 Use stable internal IDs and human-readable document numbers separately. The minimum connected entities are:
@@ -187,40 +337,155 @@ Use stable internal IDs and human-readable document numbers separately. The mini
 - `User`, `Brand`, `Location`, `Client`, `ClientPreference`, `Activity`
 - `CatalogPiece`, `Material`, `Stone`, `InventoryLot`, `StockMovement`, `Supplier`
 - `Project`, `ProjectMilestone`, `DesignRevision`, `Approval`, `MaterialAllocation`
+- `PricingCalculation`, `PricingVersion`, `CostLine`, `RateCard`, `PriceAdjustment`
 - `Quote`, `QuoteVersion`, `QuoteLineItem`
 - `Invoice`, `InvoiceLineItem`, `Payment`, `Refund`
 - `Expense`, `ExpenseCategory`, `Attachment`
 - `Certificate`, `CertificateRevision`
 - `RepairTicket`, `RepairEvent`, `CustodyEvent`
+- `ReplyTemplate`, `ReplyTemplateVersion`, `TemplateVariable`, `ReplyUsage`
 
 Important relationships:
 
 - A client can have many projects, transactions, certificates, and repair tickets.
 - A project may originate from one accepted quote and may have multiple invoices and payments.
+- A quote version should reference an immutable pricing-version snapshot rather than a live mutable calculator.
 - An inventory lot can contribute to multiple pieces or projects through stock movements and allocations.
 - A finished piece can have one active certificate with an immutable issuance history.
 - A repair ticket may link to an existing piece, but must also support unregistered client-owned jewelry.
+
+## Recommended Technical Architecture
+
+### Decision
+
+Keep the existing **React + TypeScript + Vite** application and evolve it into a responsive PWA. Do not migrate to Next.js or build separate iOS and Android applications for the MVP. Seine Studio needs one codebase, installability, camera-friendly mobile workflows, and inexpensive hosting more than it needs server-rendered marketing pages or native-platform maintenance.
+
+### Application Stack
+
+| Layer | Recommendation | Rationale |
+| --- | --- | --- |
+| UI | React 18, TypeScript, Vite | Already present, fast static builds, large ecosystem, and no migration cost. Upgrade versions deliberately rather than during feature work. |
+| Styling | Tailwind CSS 4 plus semantic CSS variables | Existing foundation; tokens can enforce the Louvre palette and keep dense operational screens consistent. |
+| Accessible primitives | Radix UI/shadcn-style local components | Already present and appropriate when components remain owned by the repo rather than treated as a black-box design system. |
+| Routing | React Router | Already installed; gives stable, linkable record URLs and nested mobile/desktop layouts. |
+| Forms and validation | React Hook Form plus Zod | Keeps long pricing and intake forms performant while sharing validation contracts. |
+| Server state | TanStack Query | Handles caching, retries, invalidation, optimistic UI, and online/offline transitions more reliably than ad hoc component state. |
+| Local/offline data | IndexedDB via Dexie | Suitable for cached read models, draft forms, photo-upload queues, and an explicit sync outbox. Do not use it as an independent financial source of truth. |
+| PWA | `vite-plugin-pwa` with Workbox | Generates the manifest and service worker inside the existing Vite build. Use controlled update prompts for active form sessions rather than silently replacing the app mid-entry. |
+| Charts | Recharts initially | Already installed. Lazy-load reporting routes because the current production bundle already exceeds Vite's default size warning. |
+| Unit/integration tests | Vitest, React Testing Library, MSW | Fits Vite and supports calculation, validation, and data-state tests without a remote backend. |
+| End-to-end/PWA tests | Playwright plus Lighthouse CI | Covers installed/mobile workflows, service-worker updates, offline shell behavior, and accessibility/performance budgets. |
+
+### Backend and Infrastructure
+
+| Layer | Recommendation | Free/low-cost posture and trade-off |
+| --- | --- | --- |
+| Database | Neon Postgres | Use Neon Free initially or the existing paid Neon account later. Keep ordinary PostgreSQL tables and migrations so the app is portable. |
+| Database access | Drizzle ORM from server functions only | Provides typed queries and migrations without exposing database credentials to the browser. |
+| Authentication | Neon Auth with an explicit two-email allowlist | Disable public signup. Permit only the owner and developer accounts. If Neon Auth does not fit at deployment time, replace only the auth adapter rather than the domain layer. |
+| Authorization | Server-enforced `Owner` and `Developer` roles | Two roles are enough for the private tool. Validate the authenticated user and allowlist on every API request. |
+| Server API | Cloudflare Pages Functions | Keeps Neon connection strings and privileged operations off the client while remaining within a practical free tier for two users. |
+| File storage | None required for the first release | Store structured records and optional external file links. Add private Cloudflare R2 storage only when receipts, sketches, or repair photos become necessary. |
+| Hosting/CDN | Cloudflare Pages | Static Vite output is a good fit. The current Free plan allows 500 builds/month and custom domains, more than enough for an early internal application. |
+| Document output | React-rendered HTML/text templates | Supports editing, copying, duplication, and browser printing without PDF infrastructure. Snapshot issued values so later edits do not change old records. |
+| Instagram replies | Local template engine plus clipboard | Populate approved variables and copy manually. Do not store Instagram credentials or add Meta API dependencies in the current release. |
+| Error monitoring | Sentry free tier or equivalent, added before pilot | Capture release, route, and sanitized stack context. Never send client notes, jewelry photos, financial line items, or authentication data to monitoring. |
+| CI/CD | GitHub Actions plus Cloudflare Pages Git integration | Run type check, lint, unit tests, and build on pull requests; deploy `main` automatically. |
+
+As of June 2026, the relevant free-tier limits must be verified again immediately before launch because vendor pricing changes. Avoid architecture that assumes a free tier is an SLA.
+
+Official references, last checked June 21, 2026:
+
+- Neon pricing and Free/Launch limits: <https://neon.com/pricing>
+- Cloudflare Pages Free limits: <https://developers.cloudflare.com/pages/platform/limits/>
+- Vite PWA setup and service-worker behavior: <https://vite-pwa-org.netlify.app/guide/>
+- Vite PWA installability requirements: <https://vite-pwa-org.netlify.app/guide/pwa-minimal-requirements.html>
+
+### Cost Path
+
+- **Prototype and private use:** approximately USD 0/month using GitHub, Cloudflare Pages/Functions Free, and Neon Free.
+- **Existing paid Neon path:** connect the same schema and migrations to the paid Neon account when desired; no database-provider migration should be required.
+- **Backups:** schedule regular CSV/JSON exports regardless of provider tier. Confirm Neon restore and retention limits on the selected plan before relying on it as the only recovery mechanism.
+- **Later costs:** custom domain renewal, optional private object storage, monitoring, email delivery, and payment-provider transaction fees. Add them only when the corresponding upgrade is enabled.
+
+### PWA and Offline Contract
+
+The PWA must provide:
+
+- An installable manifest named `Seine Studio` with approved icons, `display: standalone`, theme colors, and mobile screenshots when available.
+- A service worker that precaches the app shell and versioned static assets.
+- Network-aware UI with clear `Offline`, `Saving`, `Queued`, `Synced`, and `Conflict` states.
+- Cached read access to recently opened clients, pieces, projects, and repair tickets, subject to explicit local-data retention limits.
+- Offline draft creation for notes, pricing calculations, inventory counts, and repair intake, stored in IndexedDB and synchronized through an outbox when connectivity returns.
+- A deliberate update prompt that never discards an active draft.
+
+The PWA must not:
+
+- Mark invoices paid, finalize financial records, issue certificates, or permanently decrement stock while offline without server confirmation.
+- Cache authentication responses, signed private-file URLs, or sensitive API responses indiscriminately.
+- claim that offline drafts are backed up before they reach the server.
+- Resolve write conflicts by last-write-wins for prices, payments, inventory, certificates, or custody events.
+
+### Security and Recovery Baseline
+
+- Never expose a Neon connection string or privileged database credential in the browser or `VITE_*` environment variables.
+- Keep Neon credentials and future provider secrets only in Cloudflare server-function environment configuration.
+- Enforce the two-email allowlist and `Owner`/`Developer` role on the server, not only in the interface.
+- Disable public registration and test that unauthenticated and non-allowlisted requests fail.
+- Encrypt transport with HTTPS. If private object storage is added later, use short-lived signed URLs.
+- Provide CSV/JSON exports for clients, catalog, inventory, pricing, invoices, payments, and expenses.
+- Establish a restore test and documented backup/export cadence before relying on the system for daily operations.
+- Minimize offline retention of client and financial data and provide a `Clear local data` control.
+- Redact sensitive fields from logs, analytics, crash reports, and notification previews.
 
 ## MVP and Delivery Plan
 
 ### Phase 0 - Stabilize the Prototype
 
-- Make `src/app/data.ts` the single source for shared domain types and fixture data.
-- Remove duplicated types, constants, helpers, and mock records from `src/app/App.tsx`.
-- Split the 1,000-line application and 984-line accounting component into feature modules with a shared app shell.
-- Add Accounting to the active navigation and connect it to shared state.
-- Replace ambiguous global actions with page-specific actions.
-- Add routing or stable URL state so pages and records are linkable.
-- Add linting, formatting, type checking, and a test command.
-- Preserve the current visual direction while migrating repeated literal colors into tokens.
+**Status: Engineering stabilization complete June 21, 2026.**
+
+Completed foundation slice:
+
+- Consolidated the active application onto shared types, fixture data, constants, and formatters from `src/app/data.ts`.
+- Connected the existing Accounting module to active desktop and mobile navigation.
+- Replaced visible prototype branding with Seine Studio and preserved the supplied logo source in the project.
+- Added a responsive phone shell with five bottom-navigation destinations and safe-area spacing.
+- Added Vite PWA manifest/service-worker generation, an offline status notice, and a user-controlled update prompt.
+- Added TypeScript checking and a combined `npm run check` command.
+- Added Vitest and tracker-based pricing calculation tests.
+- Updated vulnerable React Router and Vite versions identified during the baseline audit; `npm audit` reports zero known vulnerabilities.
+- Pinned Node 22 LTS for supported local and CI builds.
+- Added a mobile-ready custom pricing calculator with assisted material entry and prefilled quote handoff.
+- Split the application shell, core pages, Accounting fixtures, and Accounting modal workflows into focused modules; `App.tsx` is now approximately 236 lines and `AccountingPage.tsx` approximately 640 lines.
+- Removed the obsolete social-calendar prototype and lazy-loaded Accounting and Reply Templates by route.
+- Added stable record URLs for projects, clients, and inventory, including URL-backed detail selections.
+- Removed the ambiguous global `Create` action; creation remains attached to named workflows such as `New invoice`, `Log expense`, `Prepare quote`, and `Duplicate template`.
+- Added ESLint, Prettier, Playwright, unit-test, type-check, build, and combined check commands. TypeScript is pinned to supported stable version 5.9.
+- Added nine unit tests, including pricing versioning and reviewed tracker-import staging coverage.
+- Added six passing browser checks across desktop and mobile for installability, service-worker updating, offline reload, and Accounting navigation.
+- Added append-only browser pricing snapshots and a CSV review stage that flags invalid formulas, missing inputs, and price/quantity mismatches before a block can be loaded.
+- Added semantic brand/status tokens and replaced the inventory table with phone-native summary/detail cards below the desktop breakpoint.
+- Added a simplified vector signature mark derived from the supplied emblem, transparent 16/32/180/192/512 PNG assets, and safe-zone-tested 192/512 maskable launcher assets. The PWA manifest, favicon, and Apple touch icon now use these production candidates.
+- Replaced Accounting invoice, quote, and expense tables with phone-native record cards below the desktop breakpoint. Mobile actions remain visible and meet the 44px touch-target rule.
+- Migrated the remaining frequently repeated Accounting and shell palette literals into semantic theme tokens.
+
+Phase 0 completion notes:
+
+- The owner must visually sign off on the simplified launcher mark before public release; the required asset set and manifest wiring are complete.
+- Local immutable pricing snapshots and reviewed imports intentionally move to Neon in Phase 1 so both users share the same durable history. This is no longer Phase 0 work.
+- Future screens must continue the established token and responsive-card patterns as their workflows are added.
 
 ### Phase 1 - Operational Core
 
-- Persistent database and authentication.
+- Neon Postgres schema, Drizzle migrations, Cloudflare Pages Functions, and two-user authentication.
+- Server-enforced owner/developer allowlist with public registration disabled.
 - Clients and activity history.
 - Jewelry catalog, materials, locations, inventory lots, and stock movements.
 - Custom creation projects with files, approvals, milestones, and material allocation.
 - Search, filtering, validation, responsive layouts, and audit timestamps.
+- CSV/JSON export, backup procedure, and restore test.
+- IndexedDB draft/outbox foundation with explicit sync and conflict states.
+- Instagram inquiry reply templates with approved variables and copy-to-clipboard.
 
 ### Phase 2 - Sales and Finance
 
@@ -228,7 +493,7 @@ Important relationships:
 - Invoices, deposits, multiple payments, balance and overdue calculations.
 - Expense and supplier records with receipt attachments.
 - Financial overview, basic margin reporting, and management P&L.
-- Branded PDF documents and email/share workflow.
+- Editable branded HTML/text templates with copy, duplicate, and browser-print workflows.
 
 ### Phase 3 - Trust and Aftercare
 
@@ -236,14 +501,44 @@ Important relationships:
 - Repair/alteration intake, custody tracking, and release.
 - Notifications and reminders for payments, deadlines, stock, and repairs.
 
-### Later, Only When Core Workflows Are Reliable
+## Upgrade Roadmap
 
-- Payment-provider integration and reconciliation.
-- Customer portal for approvals, quote acceptance, payments, certificates, and repair status.
-- Multi-user permissions and accountant access.
+The following capabilities are intentionally excluded from the two-user private release but preserved as future upgrades. They should not shape current infrastructure until the owner explicitly enables the corresponding tier.
+
+### Upgrade A - Rich Documents and Delivery
+
+- Branded PDF generation for quotes, invoices, certificates, and repair receipts.
+- Automated transactional email delivery and delivery/open history.
+- Private attachment storage for receipts, sketches, progress photos, and repair intake images.
+- Template approval states and electronic signatures.
+
+### Upgrade B - Client Transactions
+
+- Public quote viewing and acceptance.
+- Pay-by-link, deposits, refunds, provider webhooks, and reconciliation.
+- Customer portal for approvals, payments, certificates, order progress, and repair status.
+- Secure public certificate verification.
+
+### Upgrade C - Team Operations
+
+- Staff, sales, maker, accountant, and read-only roles.
+- Granular permission policies and broader audit history.
+- Assignment queues, internal comments, and workload reporting.
+- Multiple locations, brands, or business entities.
+
+### Upgrade D - Instagram and Marketing Automation
+
+- Meta/Instagram account connection and inbox reading.
+- Approved automatic or assisted replies.
+- Social scheduling, publishing, engagement analytics, and content calendar.
+- Consent-aware campaign and follow-up automation.
+
+### Upgrade E - Commerce and Scale
+
 - Barcode/QR labels and scanning.
-- E-commerce, shipping, consignment, and advanced analytics integrations.
-- Optional social-media planner.
+- E-commerce, shipping, consignment, and stock synchronization.
+- Advanced analytics integrations and forecasting.
+- Native mobile applications only if PWA limitations become measurable.
 
 ## Current Codebase Review
 
@@ -255,22 +550,30 @@ Important relationships:
 - A separate Accounting component with financial overview, invoice, quote, and expense tabs plus in-memory CRUD modals.
 - Toast, modal, and confirmation primitives.
 - A coherent warm neutral, charcoal, and gold visual foundation.
+- The original Seine Studio logo source at `public/brand/seine-logo-source.png`.
+- A custom-pricing CSV reference containing eight historical calculation blocks.
+- A responsive PWA shell with manifest, service worker, offline/update status, and mobile navigation.
+- A tested custom pricing calculator with assisted material suggestions and prefilled quote handoff.
+- URL-based navigation with Accounting isolated behind a lazy-loaded route.
 
 ### Gaps and Risks
 
-- `App.tsx` duplicates the types and mock data already exported by `data.ts`; the two sources can drift.
-- The Accounting component exists but is not imported or reachable from the active app navigation.
 - Most visible screens read module-level constants and are not connected to shared mutable state.
-- All data is in memory. Refreshing loses changes; there is no database, API, authentication, authorization, audit log, or file storage.
+- All business data is still in memory. Refreshing loses changes; there is no Neon database, server API, authentication, authorization, or durable revision history yet.
 - Projects combine production and payment state (`Paid` is a project stage), which will produce ambiguous workflows.
 - Client lifetime spend and inventory status are stored values instead of derived results.
 - Accounting totals are simplified. Deposits are embedded on invoices, and there is no payment ledger, partial-payment status, tax/discount handling, refund model, or accounting period logic.
 - Expenses and inventory purchases are not linked, which can distort cost and profit calculations.
-- Search and the global `New` button are currently visual only.
+- Global search is currently visual only. The ambiguous global `Create` button has been removed.
 - There are no certificates, repairs, catalog-piece records, stock movements, document generation, pay links, or public client workflow.
-- There is no test suite, lint/type-check script, or CI configuration.
-- The production build succeeds, but the main JavaScript bundle is about 576 KB minified and triggers Vite's chunk-size warning. Feature-level lazy loading should be considered as the app grows.
+- Linting, formatting, unit tests, and Playwright browser tests are configured locally; CI is not configured yet.
+- Accounting and Reply Templates are lazy-loaded. The initial application chunk is approximately 227 KB minified; Accounting remains approximately 581 KB and needs a measured chart/vendor split before more reporting is added.
 - Remote Google Font imports create a network dependency; production should define an intentional font-loading and fallback strategy.
+- Current inventory and Accounting records have phone-specific list/detail layouts; future document and repair screens must follow the same pattern.
+- There is no IndexedDB draft store or sync outbox yet.
+- A simplified transparent/maskable icon system is implemented; final brand approval remains a pre-release signoff item.
+- The pricing tracker has missing inputs, duplicated labels, inconsistent subtotals, and a formula error. The application now stages CSV blocks and surfaces warnings, but the owner must still verify historical source values before saving a version.
+- Reply templates work locally, but their custom versions, policy defaults, and optional usage counts are not yet shared across devices or persisted in Neon.
 - The supplied `guidelines/Guidelines.md` is still an empty template. This file is the project source of truth until that document is intentionally replaced or synchronized.
 
 ## Engineering Standards
@@ -286,6 +589,8 @@ Important relationships:
 - Keep uploaded client documents private by default and use access-controlled URLs.
 - Apply data minimization and explicit retention practices to client information in line with the Philippines Data Privacy Act and applicable guidance. Confirm legal, tax, invoicing, and payment requirements with qualified local professionals before production launch.
 - Test calculations, transitions, and permissions more heavily than static presentation.
+- Treat mobile, installed-PWA, intermittent-network, and service-worker-update behavior as testable product requirements.
+- Keep offline commands idempotent with client-generated operation IDs and server-side version/conflict checks.
 
 ## Definition of Done for a Feature
 

@@ -1,6 +1,6 @@
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type Page = "overview" | "projects" | "clients" | "inventory" | "social";
+export type Page = "overview" | "projects" | "clients" | "inventory" | "accounting" | "replies";
 export type Stage = "Inquiry" | "Design" | "Production" | "QA" | "Delivery" | "Paid";
 export type ProjectType = "Commission" | "Collection";
 export type StockStatus = "Sufficient" | "Low" | "Out";
