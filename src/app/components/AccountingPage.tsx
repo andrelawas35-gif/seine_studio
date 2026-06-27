@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Receipt, FileText, TrendingUp, TrendingDown, DollarSign,
   Plus, MoreHorizontal, AlertCircle, CheckCircle2,
-  Send, Calculator as CalculatorIcon,
+  Send, Calculator as CalculatorIcon, ExternalLink,
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis,
@@ -14,6 +14,7 @@ import { ConfirmDialog } from "../components/Modal";
 import { useToast } from "../components/Toast";
 import { PricingCalculator } from "./PricingCalculator";
 import type { PreparedQuote } from "./PricingCalculator";
+import { apiRequest } from "../api";
 
 import { INITIAL_EXPENSES, INITIAL_INVOICES, INITIAL_QUOTES } from "../accountingData";
 import type { Expense, Invoice, InvoiceStatus, Quote, QuoteStatus } from "../accountingData";
@@ -62,10 +63,10 @@ const REVENUE_DATA = [
 
 function SectionHeader({ title, sub, action }: { title: string; sub?: string; action?: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between mb-4">
+    <div className="flex items-center justify-between mb-3">
       <div>
-        <p className="text-[9px] tracking-[0.22em] uppercase text-muted-foreground font-medium">{title}</p>
-        {sub && <p className="text-[10px] text-muted-foreground mt-0.5">{sub}</p>}
+        <p className="text-[11px] tracking-[0.18em] uppercase text-muted-foreground font-medium">{title}</p>
+        {sub && <p className="text-[12px] text-muted-foreground mt-0.5">{sub}</p>}
       </div>
       {action}
     </div>
@@ -76,24 +77,24 @@ function StatCard({ label, value, sub, trend, accent }: {
 }) {
   return (
     <div
-      className="p-5 rounded border transition-all"
+      className="p-4 sm:p-5 rounded border"
       style={{
         background: accent ? "var(--accent)" : "var(--card)",
         borderColor: accent ? "var(--accent-strong)" : "var(--border)",
       }}
     >
-      <p className="text-[9px] tracking-[0.2em] uppercase font-medium mb-3"
-        style={{ color: accent ? "var(--accent-soft)" : "var(--muted-foreground)" }}>
+      <p className="text-[11px] tracking-[0.18em] uppercase font-medium mb-2.5"
+        style={{ color: accent ? "#F5E8C8" : "var(--muted-foreground)" }}>
         {label}
       </p>
-      <p className="text-2xl font-light mb-1"
+      <p className="text-xl sm:text-2xl font-light mb-0.5"
         style={{ fontFamily: "'Playfair Display', serif", color: accent ? "#fff" : "var(--foreground)" }}>
         {value}
       </p>
       <div className="flex items-center gap-1">
-        {trend === "up" && <TrendingUp size={10} style={{ color: accent ? "var(--accent-soft)" : "var(--success)" }} />}
-        {trend === "down" && <TrendingDown size={10} style={{ color: accent ? "var(--accent-soft)" : "#ef4444" }} />}
-        <p className="text-[10px]" style={{ color: accent ? "rgba(245,232,200,0.7)" : "var(--muted-foreground)" }}>{sub}</p>
+        {trend === "up" && <TrendingUp size={10} className="text-emerald-600" />}
+        {trend === "down" && <TrendingDown size={10} className="text-red-500" />}
+        <p className="text-[12px] leading-snug" style={{ color: accent ? "rgba(245,232,200,0.75)" : "var(--muted-foreground)" }}>{sub}</p>
       </div>
     </div>
   );
@@ -114,6 +115,15 @@ type AccountingTab = "overview" | "pricing" | "invoices" | "quotes" | "expenses"
 
 export function AccountingPage({ projects, clients, inventory }: AccountingPageProps) {
   const [tab, setTab] = useState<AccountingTab>("overview");
+
+  const switchTab = (id: AccountingTab) => {
+    setTab(id);
+    // Scroll to top of content when switching tabs
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    // Also scroll the main container if it exists
+    const main = document.querySelector("main");
+    if (main) main.scrollTop = 0;
+  };
   const [invoices, setInvoices] = useState<Invoice[]>(INITIAL_INVOICES);
   const [quotes, setQuotes]     = useState<Quote[]>(INITIAL_QUOTES);
   const [expenses, setExpenses] = useState<Expense[]>(INITIAL_EXPENSES);
@@ -126,9 +136,149 @@ export function AccountingPage({ projects, clients, inventory }: AccountingPageP
 
   const { toast } = useToast();
 
+  const USE_DATABASE = import.meta.env.VITE_DATA_MODE === "api";
+
+  // ── API-sourced financial summary ─────────────────────────────────────────
+
+  interface ApiInvoiceSummary {
+    id: string;
+    invoiceNumber: string;
+    clientName: string | null;
+    status: string;
+    totalCents: number;
+    paidCents: number;
+    dueDate: string | null;
+    issuedAt: string | null;
+  }
+
+  interface ApiExpenseSummary {
+    id: string;
+    category: string;
+    description: string | null;
+    supplierName: string | null;
+    amountCents: number;
+    isCogs: boolean;
+    incurredAt: string | null;
+  }
+
+  const [apiMetrics, setApiMetrics] = useState<{
+    collected: number;
+    outstanding: number;
+    overdue: number;
+    totalExpenses: number;
+    cogs: number;
+    opex: number;
+  } | null>(null);
+  const [apiExpByCategory, setApiExpByCategory] = useState<{ name: string; value: number }[]>([]);
+  const [apiRevenueData, setApiRevenueData] = useState<{ month: string; collected: number; outstanding: number; expenses: number }[]>([]);
+  const [apiInvoices, setApiInvoices] = useState<ApiInvoiceSummary[]>([]);
+  const [apiLoading, setApiLoading] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
+
+  const fetchFinancialSummary = useCallback(async () => {
+    if (!USE_DATABASE) return;
+    setApiLoading(true);
+    try {
+      const [invResult, expResult] = await Promise.all([
+        apiRequest<{ data: ApiInvoiceSummary[] }>("/api/invoices?limit=200"),
+        apiRequest<{ data: ApiExpenseSummary[] }>("/api/expenses?limit=200"),
+      ]);
+
+      const invoices = invResult.data || [];
+      const expenses = expResult.data || [];
+
+      // Amounts are stored in cents on the server — convert to pesos for display.
+      const toPesos = (cents: number) => Math.round(cents) / 100;
+
+      const collected = toPesos(
+        invoices.filter((i) => i.status === "paid").reduce((s, i) => s + i.totalCents, 0),
+      );
+      const outstanding = toPesos(
+        invoices
+          .filter((i) => i.status === "sent" || i.status === "partially_paid" || i.status === "overdue")
+          .reduce((s, i) => s + (i.totalCents - i.paidCents), 0),
+      );
+      const overdue = invoices.filter((i) => i.status === "overdue").length;
+      const totalExpenses = toPesos(expenses.reduce((s, e) => s + e.amountCents, 0));
+      const cogs = toPesos(expenses.filter((e) => e.isCogs).reduce((s, e) => s + e.amountCents, 0));
+      const opex = Math.round((totalExpenses - cogs) * 100) / 100;
+
+      setApiMetrics({ collected, outstanding, overdue, totalExpenses, cogs, opex });
+      setApiInvoices(invoices);
+
+      // Expense breakdown by category (pesos)
+      const catMap: Record<string, number> = {};
+      expenses.forEach((e) => {
+        catMap[e.category] = (catMap[e.category] ?? 0) + e.amountCents;
+      });
+      setApiExpByCategory(
+        Object.entries(catMap)
+          .map(([name, value]) => ({ name, value: toPesos(value) }))
+          .sort((a, b) => b.value - a.value),
+      );
+
+      // Revenue chart: real trailing six months, keyed by issue / incurred date.
+      const monthKeys: string[] = [];
+      const monthLabel: Record<string, string> = {};
+      const now = new Date();
+      for (let i = 5; i >= 0; i -= 1) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        monthKeys.push(key);
+        monthLabel[key] = d.toLocaleDateString("en-PH", { month: "short" });
+      }
+      const buckets: Record<string, { collected: number; outstanding: number; expenses: number }> = {};
+      monthKeys.forEach((k) => (buckets[k] = { collected: 0, outstanding: 0, expenses: 0 }));
+      const keyOf = (iso: string | null) => {
+        if (!iso) return null;
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return null;
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      };
+      invoices.forEach((inv) => {
+        const k = keyOf(inv.issuedAt);
+        if (!k || !buckets[k]) return;
+        if (inv.status === "paid") buckets[k].collected += toPesos(inv.totalCents);
+        else if (["sent", "partially_paid", "overdue"].includes(inv.status))
+          buckets[k].outstanding += toPesos(inv.totalCents - inv.paidCents);
+      });
+      expenses.forEach((e) => {
+        const k = keyOf(e.incurredAt);
+        if (!k || !buckets[k]) return;
+        buckets[k].expenses += toPesos(e.amountCents);
+      });
+      setApiRevenueData(monthKeys.map((k) => ({ month: monthLabel[k], ...buckets[k] })));
+      setApiError(null);
+    } catch {
+      setApiError("Couldn't load financial data. Pull to refresh or try again shortly.");
+    } finally {
+      setApiLoading(false);
+    }
+  }, [USE_DATABASE]);
+
+  useEffect(() => {
+    void fetchFinancialSummary();
+  }, [fetchFinancialSummary]);
+
   // ── Computed Metrics ──────────────────────────────────────────────────────
 
   const metrics = useMemo(() => {
+    // Prefer API metrics when available
+    if (apiMetrics) {
+      const netProfit = apiMetrics.collected - apiMetrics.totalExpenses;
+      const pipeline = projects.filter(p => p.stage !== "Paid").reduce((s, p) => s + p.price, 0);
+      return {
+        collected: apiMetrics.collected,
+        outstanding: apiMetrics.outstanding,
+        overdue: apiMetrics.overdue,
+        totalExpenses: apiMetrics.totalExpenses,
+        cogs: apiMetrics.cogs,
+        opex: apiMetrics.opex,
+        netProfit,
+        pipeline,
+      };
+    }
+
     const collected    = invoices.filter(i => i.status === "Paid").reduce((s, i) => s + invoiceTotal(i), 0);
     const outstanding  = invoices.filter(i => i.status === "Sent" || i.status === "Overdue").reduce((s, i) => s + (invoiceTotal(i) - i.depositPaid), 0);
     const overdue      = invoices.filter(i => i.status === "Overdue").length;
@@ -136,7 +286,7 @@ export function AccountingPage({ projects, clients, inventory }: AccountingPageP
     const netProfit    = collected - totalExpenses;
     const pipeline     = projects.filter(p => p.stage !== "Paid").reduce((s, p) => s + p.price, 0);
     return { collected, outstanding, overdue, totalExpenses, netProfit, pipeline };
-  }, [invoices, expenses, projects]);
+  }, [apiMetrics, invoices, expenses, projects]);
 
   // ── CRUD Handlers ─────────────────────────────────────────────────────────
 
@@ -190,10 +340,26 @@ export function AccountingPage({ projects, clients, inventory }: AccountingPageP
 
   // ── Expense breakdown by category ─────────────────────────────────────────
   const expByCategory = useMemo(() => {
+    if (apiExpByCategory.length > 0) return apiExpByCategory;
     const map: Record<string, number> = {};
     expenses.forEach(e => { map[e.category] = (map[e.category] ?? 0) + e.amount; });
     return Object.entries(map).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
-  }, [expenses]);
+  }, [apiExpByCategory, expenses]);
+
+  // ── Overview display data (real in API mode, fixtures otherwise) ───────────
+  const revenueChartData = USE_DATABASE ? apiRevenueData : REVENUE_DATA;
+  const hasRevenueData = revenueChartData.some((d) => d.collected || d.outstanding || d.expenses);
+  const hasExpenseData = expByCategory.length > 0 && metrics.totalExpenses > 0;
+
+  const STATUS_API: Record<string, { bg: string; label: string }> = {
+    paid: { bg: "bg-emerald-50 text-emerald-700", label: "Paid" },
+    sent: { bg: "bg-sky-50 text-sky-700", label: "Sent" },
+    partially_paid: { bg: "bg-amber-50 text-amber-600", label: "Partial" },
+    overdue: { bg: "bg-red-50 text-red-600", label: "Overdue" },
+    draft: { bg: "bg-stone-100 text-stone-500", label: "Draft" },
+    cancelled: { bg: "bg-stone-100 text-stone-400", label: "Cancelled" },
+    void: { bg: "bg-stone-100 text-stone-400", label: "Void" },
+  };
 
   const prepareQuote = (draft: PreparedQuote) => {
     const issue = new Date();
@@ -223,13 +389,17 @@ export function AccountingPage({ projects, clients, inventory }: AccountingPageP
   const TABS: { id: AccountingTab; label: string; icon: React.ReactNode }[] = [
     { id: "overview",  label: "Overview",  icon: <TrendingUp size={12} /> },
     { id: "pricing",   label: "Pricing",   icon: <CalculatorIcon size={12} /> },
-    { id: "invoices",  label: "Invoices",  icon: <Receipt size={12} /> },
-    { id: "quotes",    label: "Quotes",    icon: <FileText size={12} /> },
-    { id: "expenses",  label: "Expenses",  icon: <DollarSign size={12} /> },
+    ...(USE_DATABASE
+      ? []
+      : [
+          { id: "invoices" as AccountingTab, label: "Invoices", icon: <Receipt size={12} /> as React.ReactNode },
+          { id: "quotes" as AccountingTab, label: "Quotes", icon: <FileText size={12} /> as React.ReactNode },
+          { id: "expenses" as AccountingTab, label: "Expenses", icon: <DollarSign size={12} /> as React.ReactNode },
+        ]),
   ];
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="space-y-4 max-w-5xl overflow-x-hidden">
       {/* Modals */}
       <InvoiceModal
         open={invModal.open}
@@ -261,30 +431,23 @@ export function AccountingPage({ projects, clients, inventory }: AccountingPageP
         danger
       />
 
-      {/* Metric Cards */}
-      {tab !== "pricing" && (
-        <>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <StatCard accent label="Revenue Collected" value={php(metrics.collected)} sub="Fully paid invoices" trend="up" />
-            <StatCard label="Outstanding Balance" value={php(metrics.outstanding)} sub={`${metrics.overdue} overdue invoice${metrics.overdue !== 1 ? "s" : ""}`} trend={metrics.overdue > 0 ? "down" : "neutral"} />
-            <StatCard label="Total Expenses" value={php(metrics.totalExpenses)} sub="Materials, tools & overhead" />
-          </div>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <StatCard label="Net Profit (June)" value={php(metrics.netProfit)} sub="Collected minus expenses" trend={metrics.netProfit > 0 ? "up" : "down"} />
-            <StatCard label="Pipeline Revenue" value={php(metrics.pipeline)} sub="Active projects, not yet invoiced" trend="up" />
-            <StatCard label="Pending Quotes" value={String(quotes.filter(q => q.status === "Sent").length)} sub={`${quotes.filter(q => q.status === "Accepted").length} accepted this month`} />
-          </div>
-        </>
-      )}
+      {/* Page header */}
+      <div className="border-b border-border pb-4">
+        <p className="text-[11px] uppercase tracking-[0.22em] text-accent">Finances</p>
+        <h2 className="mt-1 font-serif text-2xl text-foreground">Every peso accounted for.</h2>
+        <p className="mt-1 max-w-xl text-[12px] leading-5 text-muted-foreground">
+          Revenue, expenses, and custom pricing — derived from your source records, never duplicated.
+        </p>
+      </div>
 
       {/* Tabs */}
       <div className="flex max-w-full items-center gap-0.5 overflow-x-auto rounded border border-border bg-muted/30 p-0.5 sm:w-fit">
         {TABS.map(t => (
           <button
             key={t.id}
-            onClick={() => setTab(t.id)}
+            onClick={() => switchTab(t.id)}
             id={`accounting-tab-${t.id}`}
-            className="flex items-center gap-1.5 px-4 py-1.5 text-[9px] tracking-[0.15em] uppercase rounded transition-all"
+            className="flex items-center gap-1.5 px-4 py-1.5 text-[11px] tracking-[0.15em] uppercase rounded transition-all"
             style={{
               background: tab === t.id ? "var(--card)" : "transparent",
               color: tab === t.id ? "var(--foreground)" : "var(--muted-foreground)",
@@ -296,6 +459,58 @@ export function AccountingPage({ projects, clients, inventory }: AccountingPageP
         ))}
       </div>
 
+      {/* Metric Cards — Overview only */}
+      {tab === "overview" && (
+        <>
+          {USE_DATABASE && apiError && (
+            <div className="flex items-center gap-2.5 p-3 rounded border bg-red-50 border-red-100">
+              <AlertCircle size={13} className="text-red-500 flex-shrink-0" />
+              <p className="text-[12px] text-red-700">{apiError}</p>
+            </div>
+          )}
+          {USE_DATABASE && apiLoading && !apiMetrics && (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="p-5 rounded border border-border bg-card animate-pulse">
+                  <div className="h-3 w-20 bg-[#EDE5D5] rounded mb-3" />
+                  <div className="h-8 w-32 bg-[#EDE5D5] rounded mb-1" />
+                  <div className="h-3 w-24 bg-[#EDE5D5] rounded" />
+                </div>
+              ))}
+            </div>
+          )}
+          {(!USE_DATABASE || apiMetrics || !apiLoading) && (
+            <>
+              <div className="grid grid-cols-2 gap-3 sm:gap-4 sm:grid-cols-3">
+                <StatCard accent label="Revenue Collected" value={php(metrics.collected)} sub="Fully paid invoices" trend="up" />
+                <StatCard label="Outstanding Balance" value={php(metrics.outstanding)} sub={`${metrics.overdue} overdue invoice${metrics.overdue !== 1 ? "s" : ""}`} trend={metrics.overdue > 0 ? "down" : "neutral"} />
+                <StatCard label="Total Expenses" value={php(metrics.totalExpenses)} sub={USE_DATABASE ? `COGS ${php(metrics.cogs ?? 0)} · OPEX ${php(metrics.opex ?? 0)}` : "Materials, tools & overhead"} />
+                <StatCard label="Net Profit" value={php(metrics.netProfit)} sub={USE_DATABASE ? "Collected minus expenses" : "June — collected minus expenses"} trend={metrics.netProfit > 0 ? "up" : "down"} />
+                <StatCard label="Pipeline Revenue" value={php(metrics.pipeline)} sub="Active projects, not yet invoiced" trend="up" />
+                {USE_DATABASE ? (
+                  <div className="p-4 sm:p-5 rounded border bg-card border-border flex flex-col justify-between gap-2">
+                    <p className="text-[11px] tracking-[0.2em] uppercase font-medium text-muted-foreground">Quick Actions</p>
+                    <div className="space-y-1.5">
+                      <a href="/invoices" className="flex items-center gap-1.5 text-[12px] text-accent hover:underline">
+                        <ExternalLink size={11} /> Invoices
+                      </a>
+                      <a href="/expenses" className="flex items-center gap-1.5 text-[12px] text-accent hover:underline">
+                        <ExternalLink size={11} /> Expenses
+                      </a>
+                      <a href="/quotes" className="flex items-center gap-1.5 text-[12px] text-accent hover:underline">
+                        <ExternalLink size={11} /> Quotes
+                      </a>
+                    </div>
+                  </div>
+                ) : (
+                  <StatCard label="Pending Quotes" value={String(quotes.filter(q => q.status === "Sent").length)} sub={`${quotes.filter(q => q.status === "Accepted").length} accepted this month`} />
+                )}
+              </div>
+            </>
+          )}
+        </>
+      )}
+
       {tab === "pricing" && (
         <PricingCalculator projects={projects} clients={clients} inventory={inventory} onPrepareQuote={prepareQuote} />
       )}
@@ -306,101 +521,166 @@ export function AccountingPage({ projects, clients, inventory }: AccountingPageP
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
             {/* Revenue chart */}
             <div className="bg-card border border-border rounded p-5">
-              <p className="text-[9px] tracking-[0.2em] uppercase text-muted-foreground mb-5">Revenue vs. Expenses — 2026</p>
-              <ResponsiveContainer width="100%" height={190}>
-                <AreaChart data={REVENUE_DATA}>
-                  <defs>
-                    <linearGradient id="gradCollected" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="var(--accent)" stopOpacity={0.25} />
-                      <stop offset="95%" stopColor="var(--accent)" stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="gradExpenses" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="var(--destructive)" stopOpacity={0.12} />
-                      <stop offset="95%" stopColor="var(--destructive)" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.05)" />
-                  <XAxis dataKey="month" tick={{ fontSize: 9, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 9, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} tickFormatter={v => `₱${(v/1000).toFixed(0)}k`} />
-                  <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => php(v)} />
-                  <Area type="monotone" dataKey="collected" stroke="var(--accent)" strokeWidth={1.5} fill="url(#gradCollected)" name="Collected" />
-                  <Area type="monotone" dataKey="expenses" stroke="var(--destructive)" strokeWidth={1.5} fill="url(#gradExpenses)" name="Expenses" />
-                </AreaChart>
-              </ResponsiveContainer>
-              <div className="flex items-center gap-5 mt-2">
-                {[{ label: "Collected", color: "var(--accent)" }, { label: "Expenses", color: "var(--destructive)" }].map(({ label, color }) => (
-                  <div key={label} className="flex items-center gap-1.5">
-                    <span className="w-5 h-px inline-block" style={{ background: color }} />
-                    <span className="text-[9px] text-muted-foreground">{label}</span>
+              <p className="text-[11px] tracking-[0.2em] uppercase text-muted-foreground mb-5">Revenue vs. Expenses — last 6 months</p>
+              {hasRevenueData ? (
+                <>
+                  <ResponsiveContainer width="100%" height={190}>
+                    <AreaChart data={revenueChartData}>
+                      <defs>
+                        <linearGradient id="gradCollected" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="var(--accent)" stopOpacity={0.25} />
+                          <stop offset="95%" stopColor="var(--accent)" stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="gradExpenses" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="var(--destructive)" stopOpacity={0.12} />
+                          <stop offset="95%" stopColor="var(--destructive)" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.05)" />
+                      <XAxis dataKey="month" tick={{ fontSize: 9, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 9, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} tickFormatter={v => `₱${(v/1000).toFixed(0)}k`} />
+                      <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => php(v)} />
+                      <Area type="monotone" dataKey="collected" stroke="var(--accent)" strokeWidth={1.5} fill="url(#gradCollected)" name="Collected" />
+                      <Area type="monotone" dataKey="expenses" stroke="var(--destructive)" strokeWidth={1.5} fill="url(#gradExpenses)" name="Expenses" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                  <div className="flex items-center gap-5 mt-2">
+                    {[{ label: "Collected", color: "var(--accent)" }, { label: "Expenses", color: "var(--destructive)" }].map(({ label, color }) => (
+                      <div key={label} className="flex items-center gap-1.5">
+                        <span className="w-5 h-px inline-block" style={{ background: color }} />
+                        <span className="text-[11px] text-muted-foreground">{label}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                </>
+              ) : (
+                <div className="flex h-[190px] flex-col items-center justify-center gap-1.5 text-center">
+                  <TrendingUp size={20} className="text-muted-foreground/50" />
+                  <p className="text-[12px] text-muted-foreground">No revenue recorded yet</p>
+                  <p className="text-[11px] text-muted-foreground/70">Paid invoices and expenses will chart here.</p>
+                </div>
+              )}
             </div>
 
             {/* Expense breakdown */}
             <div className="bg-card border border-border rounded p-5">
-              <p className="text-[9px] tracking-[0.2em] uppercase text-muted-foreground mb-5">Expense Breakdown — June</p>
-              <div className="space-y-2.5">
-                {expByCategory.map(({ name, value }) => (
-                  <div key={name} className="flex items-center gap-3">
-                    <span className="text-[10px] text-muted-foreground w-28 flex-shrink-0 truncate">{name}</span>
-                    <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-[#B8975A]"
-                        style={{ width: `${(value / metrics.totalExpenses) * 100}%`, opacity: 0.6 + (value / metrics.totalExpenses) * 0.4 }}
-                      />
-                    </div>
-                    <span className="text-[10px] font-mono text-foreground w-20 text-right flex-shrink-0">{php(value)}</span>
+              <p className="text-[11px] tracking-[0.2em] uppercase text-muted-foreground mb-5">Expense Breakdown by Category</p>
+              {hasExpenseData ? (
+                <>
+                  <div className="space-y-2.5">
+                    {expByCategory.map(({ name, value }) => (
+                      <div key={name} className="flex items-center gap-3">
+                        <span className="text-[12px] text-muted-foreground w-28 flex-shrink-0 truncate">{name}</span>
+                        <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-[#B8975A]"
+                            style={{ width: `${(value / metrics.totalExpenses) * 100}%`, opacity: 0.6 + (value / metrics.totalExpenses) * 0.4 }}
+                          />
+                        </div>
+                        <span className="text-[12px] font-mono text-foreground w-20 text-right flex-shrink-0">{php(value)}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-              <div className="mt-4 pt-4 border-t border-border flex items-center justify-between">
-                <p className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">Total Expenses</p>
-                <p className="text-sm font-mono font-light text-foreground" style={{ fontFamily: "'Playfair Display', serif" }}>{php(metrics.totalExpenses)}</p>
-              </div>
+                  <div className="mt-4 pt-4 border-t border-border flex items-center justify-between">
+                    <p className="text-[11px] uppercase tracking-[0.15em] text-muted-foreground">Total Expenses</p>
+                    <p className="text-sm font-mono font-light text-foreground" style={{ fontFamily: "'Playfair Display', serif" }}>{php(metrics.totalExpenses)}</p>
+                  </div>
+                </>
+              ) : (
+                <div className="flex h-[190px] flex-col items-center justify-center gap-1.5 text-center">
+                  <DollarSign size={20} className="text-muted-foreground/50" />
+                  <p className="text-[12px] text-muted-foreground">No expenses logged yet</p>
+                  {USE_DATABASE && (
+                    <a href="/expenses" className="text-[11px] text-accent hover:underline mt-0.5">Log an expense →</a>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
           {/* Recent invoices summary */}
-          <InvoiceCards invoices={invoices.slice(0, 4)} />
-          <div className="hidden bg-card border border-border rounded overflow-x-auto md:block">
-            <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
-              <p className="text-[9px] tracking-[0.2em] uppercase text-muted-foreground">Recent Invoices</p>
-              <button onClick={() => setTab("invoices")} className="text-[9px] text-accent hover:opacity-80 transition-opacity">View all →</button>
+          {USE_DATABASE ? (
+            <div className="bg-card border border-border rounded">
+              <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
+                <p className="text-[11px] tracking-[0.2em] uppercase text-muted-foreground">Recent Invoices</p>
+                <a href="/invoices" className="text-[11px] text-accent hover:opacity-80 transition-opacity">View all →</a>
+              </div>
+              {apiInvoices.length === 0 ? (
+                <div className="flex flex-col items-center justify-center gap-1.5 px-5 py-10 text-center">
+                  <Receipt size={20} className="text-muted-foreground/50" />
+                  <p className="text-[12px] text-muted-foreground">No invoices yet</p>
+                  <a href="/invoices" className="text-[11px] text-accent hover:underline mt-0.5">Create your first invoice →</a>
+                </div>
+              ) : (
+                <ul className="divide-y divide-border">
+                  {apiInvoices.slice(0, 5).map((inv) => {
+                    const balance = Math.round((inv.totalCents - inv.paidCents)) / 100;
+                    const s = STATUS_API[inv.status] ?? { bg: "bg-stone-100 text-stone-500", label: inv.status };
+                    return (
+                      <li key={inv.id} className="flex items-center justify-between gap-3 px-5 py-3">
+                        <div className="min-w-0">
+                          <p className="text-[12px] font-mono font-medium text-foreground truncate">{inv.invoiceNumber}</p>
+                          <p className="text-[11px] text-muted-foreground truncate">
+                            {inv.clientName ?? "—"}
+                            {inv.issuedAt ? ` · ${fmtDate(inv.issuedAt)}` : ""}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-3 flex-shrink-0">
+                          <span className="text-[12px] font-mono text-foreground">{php(Math.round(inv.totalCents) / 100)}</span>
+                          {inv.status !== "paid" && balance > 0 && (
+                            <span className="text-[11px] font-mono text-muted-foreground">{php(balance)} due</span>
+                          )}
+                          <span className={`inline-flex items-center px-2 py-0.5 text-[11px] font-medium rounded ${s.bg}`}>{s.label}</span>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </div>
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border">
-                  {["Invoice", "Client", "Total", "Balance Due", "Status"].map(h => (
-                    <th key={h} className="px-5 py-2.5 text-left text-[9px] tracking-[0.15em] uppercase text-muted-foreground font-medium">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {invoices.slice(0, 4).map(inv => {
-                  const total = invoiceTotal(inv);
-                  const balance = total - inv.depositPaid;
-                  const s = STATUS_INV[inv.status];
-                  return (
-                    <tr key={inv.id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
-                      <td className="px-5 py-3">
-                        <p className="text-[11px] font-medium text-foreground">{inv.id}</p>
-                        <p className="text-[9px] text-muted-foreground font-mono mt-0.5">{fmtDate(inv.issueDate)}</p>
-                      </td>
-                      <td className="px-5 py-3 text-[11px] text-muted-foreground">{inv.clientName}</td>
-                      <td className="px-5 py-3 text-[11px] font-mono text-foreground">{php(total)}</td>
-                      <td className="px-5 py-3 text-[11px] font-mono" style={{ color: balance > 0 && inv.status === "Overdue" ? "var(--destructive)" : "var(--foreground)" }}>{php(balance)}</td>
-                      <td className="px-5 py-3">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-medium rounded ${s.bg}`}>
-                          {s.icon}{s.text}
-                        </span>
-                      </td>
+          ) : (
+            <>
+              <InvoiceCards invoices={invoices.slice(0, 4)} />
+              <div className="hidden bg-card border border-border rounded overflow-x-auto md:block">
+                <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
+                  <p className="text-[11px] tracking-[0.2em] uppercase text-muted-foreground">Recent Invoices</p>
+                  <button onClick={() => switchTab("invoices")} className="text-[11px] text-accent hover:opacity-80 transition-opacity">View all →</button>
+                </div>
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border">
+                      {["Invoice", "Client", "Total", "Balance Due", "Status"].map(h => (
+                        <th key={h} className="px-5 py-2.5 text-left text-[11px] tracking-[0.15em] uppercase text-muted-foreground font-medium">{h}</th>
+                      ))}
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                  </thead>
+                  <tbody>
+                    {invoices.slice(0, 4).map(inv => {
+                      const total = invoiceTotal(inv);
+                      const balance = total - inv.depositPaid;
+                      const s = STATUS_INV[inv.status];
+                      return (
+                        <tr key={inv.id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
+                          <td className="px-5 py-3">
+                            <p className="text-[11px] font-medium text-foreground">{inv.id}</p>
+                            <p className="text-[11px] text-muted-foreground font-mono mt-0.5">{fmtDate(inv.issueDate)}</p>
+                          </td>
+                          <td className="px-5 py-3 text-[11px] text-muted-foreground">{inv.clientName}</td>
+                          <td className="px-5 py-3 text-[11px] font-mono text-foreground">{php(total)}</td>
+                          <td className="px-5 py-3 text-[11px] font-mono" style={{ color: balance > 0 && inv.status === "Overdue" ? "var(--destructive)" : "var(--foreground)" }}>{php(balance)}</td>
+                          <td className="px-5 py-3">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded ${s.bg}`}>
+                              {s.icon}{s.text}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -450,11 +730,11 @@ export function AccountingPage({ projects, clients, inventory }: AccountingPageP
                     <tr key={inv.id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors group">
                       <td className="px-4 py-3">
                         <p className="text-[11px] font-mono font-medium text-foreground">{inv.id}</p>
-                        <p className="text-[9px] text-muted-foreground mt-0.5 truncate max-w-[120px]">{inv.lineItems[0]?.description}</p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5 truncate max-w-[120px]">{inv.lineItems[0]?.description}</p>
                       </td>
                       <td className="px-4 py-3 text-[11px] text-muted-foreground">{inv.clientName}</td>
-                      <td className="px-4 py-3 text-[10px] font-mono text-muted-foreground">{fmtDate(inv.issueDate)}</td>
-                      <td className="px-4 py-3 text-[10px] font-mono text-muted-foreground">{fmtDate(inv.dueDate)}</td>
+                      <td className="px-4 py-3 text-[12px] font-mono text-muted-foreground">{fmtDate(inv.issueDate)}</td>
+                      <td className="px-4 py-3 text-[12px] font-mono text-muted-foreground">{fmtDate(inv.dueDate)}</td>
                       <td className="px-4 py-3 text-[11px] font-mono text-foreground">{php(total)}</td>
                       <td className="px-4 py-3 text-[11px] font-mono text-emerald-700">{php(inv.depositPaid)}</td>
                       <td className="px-4 py-3 text-[11px] font-mono"
@@ -462,18 +742,18 @@ export function AccountingPage({ projects, clients, inventory }: AccountingPageP
                         {inv.status === "Paid" ? "—" : php(balance)}
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-medium rounded ${s.bg}`}>
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded ${s.bg}`}>
                           {s.icon}{s.text}
                         </span>
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button onClick={() => setInvModal({ open: true, invoice: inv })}
-                            className="text-[9px] text-muted-foreground hover:text-foreground px-1.5 py-1 rounded hover:bg-muted/40 transition-colors">
+                            className="text-[11px] text-muted-foreground hover:text-foreground px-1.5 py-1 rounded hover:bg-muted/40 transition-colors">
                             Edit
                           </button>
                           <button onClick={() => deleteInvoice(inv.id)}
-                            className="text-[9px] text-red-400 hover:text-red-600 px-1.5 py-1 rounded hover:bg-red-50 transition-colors">
+                            className="text-[11px] text-red-400 hover:text-red-600 px-1.5 py-1 rounded hover:bg-red-50 transition-colors">
                             Delete
                           </button>
                         </div>
@@ -513,11 +793,11 @@ export function AccountingPage({ projects, clients, inventory }: AccountingPageP
               return (
                 <div key={s} className="bg-card border border-border rounded p-4">
                   <div className="flex items-center justify-between mb-2">
-                    <span className={`text-[9px] px-2 py-0.5 rounded font-medium ${st.bg}`}>{st.text}</span>
+                    <span className={`text-[11px] px-2 py-0.5 rounded font-medium ${st.bg}`}>{st.text}</span>
                     <span className="text-[11px] font-mono text-muted-foreground">{count}</span>
                   </div>
                   <p className="text-lg font-light text-foreground" style={{ fontFamily: "'Playfair Display', serif" }}>{php(total)}</p>
-                  <p className="text-[9px] text-muted-foreground mt-0.5">total quoted value</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">total quoted value</p>
                 </div>
               );
             })}
@@ -544,21 +824,21 @@ export function AccountingPage({ projects, clients, inventory }: AccountingPageP
                       <td className="px-4 py-3 text-[11px] text-foreground max-w-[160px]">
                         <p className="truncate">{q.lineItems[0]?.description}</p>
                       </td>
-                      <td className="px-4 py-3 text-[10px] font-mono text-muted-foreground">{fmtDate(q.issueDate)}</td>
-                      <td className="px-4 py-3 text-[10px] font-mono text-muted-foreground">{fmtDate(q.expiryDate)}</td>
+                      <td className="px-4 py-3 text-[12px] font-mono text-muted-foreground">{fmtDate(q.issueDate)}</td>
+                      <td className="px-4 py-3 text-[12px] font-mono text-muted-foreground">{fmtDate(q.expiryDate)}</td>
                       <td className="px-4 py-3 text-[11px] font-mono text-foreground">{php(total)}</td>
                       <td className="px-4 py-3 text-[11px] font-mono text-muted-foreground">{php(q.depositRequired)}</td>
                       <td className="px-4 py-3">
-                        <span className={`text-[9px] px-2 py-0.5 rounded font-medium ${st.bg}`}>{st.text}</span>
+                        <span className={`text-[11px] px-2 py-0.5 rounded font-medium ${st.bg}`}>{st.text}</span>
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button onClick={() => setQuoteModal({ open: true, quote: q })}
-                            className="text-[9px] text-muted-foreground hover:text-foreground px-1.5 py-1 rounded hover:bg-muted/40 transition-colors">
+                            className="text-[11px] text-muted-foreground hover:text-foreground px-1.5 py-1 rounded hover:bg-muted/40 transition-colors">
                             Edit
                           </button>
                           <button onClick={() => deleteQuote(q.id)}
-                            className="text-[9px] text-red-400 hover:text-red-600 px-1.5 py-1 rounded hover:bg-red-50 transition-colors">
+                            className="text-[11px] text-red-400 hover:text-red-600 px-1.5 py-1 rounded hover:bg-red-50 transition-colors">
                             Delete
                           </button>
                         </div>
@@ -603,24 +883,24 @@ export function AccountingPage({ projects, clients, inventory }: AccountingPageP
               <tbody>
                 {[...expenses].sort((a, b) => b.date.localeCompare(a.date)).map(exp => (
                   <tr key={exp.id} className="border-b border-border last:border-0 hover:bg-muted/20 transition-colors group">
-                    <td className="px-4 py-3 text-[10px] font-mono text-muted-foreground">{fmtDate(exp.date)}</td>
+                    <td className="px-4 py-3 text-[12px] font-mono text-muted-foreground">{fmtDate(exp.date)}</td>
                     <td className="px-4 py-3">
                       <p className="text-[11px] font-medium text-foreground">{exp.description}</p>
-                      {exp.notes && <p className="text-[9px] text-muted-foreground mt-0.5">{exp.notes}</p>}
+                      {exp.notes && <p className="text-[11px] text-muted-foreground mt-0.5">{exp.notes}</p>}
                     </td>
                     <td className="px-4 py-3">
-                      <span className="text-[9px] px-2 py-0.5 rounded font-medium bg-[#F5F2EC] text-[#6B5A3A]">{exp.category}</span>
+                      <span className="text-[11px] px-2 py-0.5 rounded font-medium bg-[#F5F2EC] text-[#6B5A3A]">{exp.category}</span>
                     </td>
                     <td className="px-4 py-3 text-[11px] text-muted-foreground">{exp.supplier || "—"}</td>
                     <td className="px-4 py-3 text-[11px] font-mono font-medium text-foreground">{php(exp.amount)}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button onClick={() => setExpModal({ open: true, expense: exp })}
-                          className="text-[9px] text-muted-foreground hover:text-foreground px-1.5 py-1 rounded hover:bg-muted/40 transition-colors">
+                          className="text-[11px] text-muted-foreground hover:text-foreground px-1.5 py-1 rounded hover:bg-muted/40 transition-colors">
                           Edit
                         </button>
                         <button onClick={() => deleteExpense(exp.id)}
-                          className="text-[9px] text-red-400 hover:text-red-600 px-1.5 py-1 rounded hover:bg-red-50 transition-colors">
+                          className="text-[11px] text-red-400 hover:text-red-600 px-1.5 py-1 rounded hover:bg-red-50 transition-colors">
                           Delete
                         </button>
                       </div>
@@ -630,7 +910,7 @@ export function AccountingPage({ projects, clients, inventory }: AccountingPageP
               </tbody>
             </table>
             <div className="px-4 py-3 border-t border-border flex items-center justify-between bg-muted/10">
-              <p className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">Total Expenses</p>
+              <p className="text-[11px] uppercase tracking-[0.15em] text-muted-foreground">Total Expenses</p>
               <p className="text-sm font-mono text-foreground" style={{ fontFamily: "'Playfair Display', serif" }}>{php(metrics.totalExpenses)}</p>
             </div>
           </div>

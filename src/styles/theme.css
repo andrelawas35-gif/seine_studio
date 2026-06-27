@@ -1,5 +1,3 @@
-@custom-variant dark (&:is(.dark *));
-
 :root {
   --font-size: 15px;
   --background: #F0EBE0;
@@ -54,43 +52,6 @@
   --sidebar-ring: #B8975A;
 }
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.145 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.145 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.985 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.396 0.141 25.723);
-  --destructive-foreground: oklch(0.637 0.237 25.331);
-  --border: oklch(0.269 0 0);
-  --input: oklch(0.269 0 0);
-  --ring: oklch(0.439 0 0);
-  --font-weight-medium: 500;
-  --font-weight-normal: 400;
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.269 0 0);
-  --sidebar-ring: oklch(0.439 0 0);
-}
-
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -125,6 +86,16 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+
+  /* ── Fluid type-scale tokens (clamp floor → preferred → ceiling) ───────── */
+  /* Floor per ADR 0001: no text below 11px except 8px bottom-nav labels */
+  --text-eyebrow: clamp(11px, 1.5vw, 12px);       /* 11px floor, museum-label micro-caps */
+  --text-caption: clamp(12px, 1.6vw, 13px);        /* timestamps, meta, secondary data */
+  --text-body: clamp(14px, 1.8vw, 15px);           /* default reading size */
+  --text-body-lg: clamp(15px, 2vw, 16px);          /* slightly larger body */
+  --text-input: clamp(16px, 2.2vw, 16px);          /* 16px floor prevents iOS zoom, desktop settles at 15px */
+  --text-input-desktop: 14px;
+
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -133,6 +104,13 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+
+  /* ── Fluid type tokens ────────────────────────────────────────────────── */
+  --font-size-eyebrow: var(--text-eyebrow);
+  --font-size-caption: var(--text-caption);
+  --font-size-body: var(--text-body);
+  --font-size-body-lg: var(--text-body-lg);
+  --font-size-input: var(--text-input);
 }
 
 @layer base {
@@ -140,8 +118,74 @@
     @apply border-border outline-ring/50;
   }
 
+  button, a, [role="button"], [role="combobox"], input, select, textarea {
+    transition: color 150ms, background-color 150ms, border-color 150ms, box-shadow 150ms, transform 100ms ease-out;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  /* ── Container queries for display-case panels ────────────────────────── */
+  /* Panels adapt to their container, not just the viewport.                 */
+  /* Usage: add @container display-case to the panel wrapper.                */
+  @container display-case (min-width: 400px) {
+    .dc-col-2 { grid-template-columns: repeat(2, 1fr); }
+    .dc-row { flex-direction: row; align-items: center; }
+  }
+
+  @container display-case (min-width: 560px) {
+    .dc-col-3 { grid-template-columns: repeat(3, 1fr); }
+  }
+
   body {
     @apply bg-background text-foreground;
+  }
+
+  /* ── Native-feel PWA polish ─────────────────────────────────────────────── */
+  /* Make the installed PWA behave like a native app rather than a web page.   */
+  html {
+    /* Stop rubber-band overscroll from revealing browser chrome / white gaps. */
+    overscroll-behavior-y: none;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    /* No grey flash on tap; no long-press callout menus on app chrome.        */
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    /* Removes the 300ms double-tap zoom delay on interactive elements.        */
+    touch-action: manipulation;
+  }
+
+  /* Momentum scrolling and contained overscroll inside the main scroll area.  */
+  main {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+
+  /* App shell isn't a document — don't let chrome be text-selected. Inputs and
+     real content remain selectable.                                           */
+  aside, nav, header, button, [role="button"] {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  input, textarea, select, [contenteditable="true"], .selectable {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
+  /* Tactile press feedback. Disabled controls and reduced-motion are exempt.  */
+  @media (prefers-reduced-motion: no-preference) {
+    button:not(:disabled):active,
+    a[role="button"]:active,
+    [role="button"]:not([aria-disabled="true"]):active {
+      transform: scale(0.97);
+    }
   }
 
   /**
@@ -193,5 +237,45 @@
     font-size: var(--text-base);
     font-weight: var(--font-weight-normal);
     line-height: 1.5;
+  }
+}
+
+/* ── Document print stylesheet ──────────────────────────────────────────── */
+/* Hides the app shell and prints only .document-canvas-wrapper content.     */
+/* Force light palette, remove shadows and backgrounds.                      */
+
+@media print {
+  @page {
+    margin: 0;
+    size: A4;
+  }
+
+  /* Hide the application shell */
+  body > aside,
+  body > nav,
+  body > header,
+  body > div:not(.document-canvas-wrapper) {
+    display: none !important;
+  }
+
+  /* Show only document canvases */
+  body {
+    background: white !important;
+    color: black !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .document-canvas-wrapper {
+    display: block !important;
+    width: 100% !important;
+  }
+
+  .document-page {
+    box-shadow: none !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    padding: 15mm 12mm 18mm !important;
+    background: white !important;
   }
 }

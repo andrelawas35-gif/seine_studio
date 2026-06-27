@@ -26,12 +26,19 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'prompt',
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
+      injectManifest: {
+        rollupFormat: 'iife',
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+      },
       includeAssets: ['brand/seine-logo-source.png', 'icons/seine-mark.svg', 'icons/seine-mark-*.png', 'icons/seine-maskable-*.png'],
       manifest: {
         name: 'Seine Studio',
         short_name: 'Seine',
         description: 'Private operations, pricing, clients, inventory, and finances for Seine Studio.',
-        theme_color: '#17140f',
+        theme_color: '#f0ebe0',
         background_color: '#f0ebe0',
         display: 'standalone',
         orientation: 'any',
@@ -63,10 +70,6 @@ export default defineConfig({
             purpose: 'maskable',
           },
         ],
-      },
-      workbox: {
-        cleanupOutdatedCaches: true,
-        navigateFallback: '/index.html',
       },
     }),
   ],

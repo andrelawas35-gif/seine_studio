@@ -1,11 +1,22 @@
+# Seine Studio Operations
 
-  # Jewelry Brand Website Design
+Private, mobile-first operations software for Seine Studio. The PWA tracks clients, jewelry, custom work, pricing, inventory, finances, replies, and event planning for the owner and developer.
 
-  This is a code bundle for Jewelry Brand Website Design. The original project is available at https://www.figma.com/design/2aeNzM5kvWD54As8MDWja8/Jewelry-Brand-Website-Design.
+Requires Node.js 22 or newer.
 
-  ## Running the code
+## Running the frontend
 
-  Run `npm i` to install the dependencies.
+```sh
+npm install
+npm run dev
+```
 
-  Run `npm run dev` to start the development server.
-  
+This local workflow uses the existing fixtures. Phase 1 backend provisioning and migration instructions are in [docs/phase-1-backend-setup.md](docs/phase-1-backend-setup.md).
+
+Portable database backup cadence and the guarded restore test are documented in [docs/backup-and-restore.md](docs/backup-and-restore.md).
+
+## Quality checks
+
+```sh
+npm run check
+```

@@ -1,0 +1,9 @@
+# Copy to .dev.vars for local Cloudflare Pages Functions development.
+# These are SERVER secrets — never use a VITE_ prefix.
+DATABASE_URL=postgresql://user:password@host/database?sslmode=require
+# NEON_AUTH_URL is the Neon Auth base URL WITH /neondb/auth. The server verifies JWTs
+# against {NEON_AUTH_URL}/.well-known/jwks.json. The client VITE_NEON_AUTH_URL uses the
+# SAME /neondb/auth value (Better Auth REST routes are relative to it).
+NEON_AUTH_URL=https://your-neon-auth.example/neondb/auth
+OWNER_EMAIL=owner@example.com
+DEVELOPER_EMAIL=developer@example.com

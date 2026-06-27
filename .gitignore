@@ -3,3 +3,10 @@ node_modules/
 playwright-report/
 test-results/
 .DS_Store
+.dev.vars
+.env
+.env.*
+!.env.example
+!.dev.vars.example
+.wrangler/
+backups/

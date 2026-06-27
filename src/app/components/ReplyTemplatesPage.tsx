@@ -6,11 +6,13 @@ import {
   APPROVED_VARIABLES,
   DEFAULT_REPLY_TEMPLATES,
   DEFAULT_STUDIO_POLICIES,
+  extractTemplateVariables,
   renderReplyTemplate,
   type ReplyCategory,
   type ReplyTemplate,
   type ReplyVariables,
 } from "../replyTemplates";
+import { apiRequest } from "../api";
 
 const STORAGE_KEY = "seine.reply-templates.v1";
 const CATEGORIES: Array<"All" | ReplyCategory> = [
@@ -82,7 +84,7 @@ export function ReplyTemplatesPage({ clients, projects, inventory }: Props) {
     return matchesCategory && (!query || `${template.title} ${template.body}`.toLowerCase().includes(query));
   });
 
-  function duplicateTemplate() {
+  async function duplicateTemplate() {
     const duplicate: ReplyTemplate = {
       ...selected,
       id: newId("reply"),
@@ -94,9 +96,25 @@ export function ReplyTemplatesPage({ clients, projects, inventory }: Props) {
     };
     setCustomTemplates((current) => [...current, duplicate]);
     setSelectedId(duplicate.id);
+
+    if (import.meta.env.VITE_DATA_MODE === "api") {
+      try {
+        await apiRequest("/replies", {
+          method: "POST",
+          body: JSON.stringify({
+            name: duplicate.title,
+            category: duplicate.category,
+            body: duplicate.body,
+            variables: extractTemplateVariables(duplicate.body),
+          }),
+        });
+      } catch {
+        // Saved locally; API sync failed silently
+      }
+    }
   }
 
-  function saveVersion() {
+  async function saveVersion() {
     const familyTitle = selected.title.replace(/ copy$/, "");
     const versions = templates.filter((template) => template.title.replace(/ copy$/, "") === familyTitle);
     const next: ReplyTemplate = {
@@ -110,6 +128,22 @@ export function ReplyTemplatesPage({ clients, projects, inventory }: Props) {
     };
     setCustomTemplates((current) => [...current, next]);
     setSelectedId(next.id);
+
+    if (import.meta.env.VITE_DATA_MODE === "api") {
+      try {
+        await apiRequest("/replies", {
+          method: "POST",
+          body: JSON.stringify({
+            name: next.title,
+            category: next.category,
+            body: next.body,
+            variables: extractTemplateVariables(next.body),
+          }),
+        });
+      } catch {
+        // Saved locally; API sync failed silently
+      }
+    }
   }
 
   async function copyReply() {
@@ -122,11 +156,11 @@ export function ReplyTemplatesPage({ clients, projects, inventory }: Props) {
     <div className="mx-auto max-w-6xl space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-[9px] uppercase tracking-[0.22em] text-[#B8975A]">Private response library</p>
+          <p className="text-[11px] uppercase tracking-[0.22em] text-[#B8975A]">Private response library</p>
           <h1 className="mt-1 font-serif text-2xl font-light text-foreground">Instagram inquiry replies</h1>
           <p className="mt-1 max-w-2xl text-[11px] leading-5 text-muted-foreground">Populate an approved response, review every detail, then copy it into Instagram. No account connection or message content is stored.</p>
         </div>
-        <button type="button" onClick={duplicateTemplate} className="min-h-11 border border-border bg-card px-4 text-[10px] uppercase tracking-widest text-foreground">
+        <button type="button" onClick={duplicateTemplate} className="min-h-11 border border-border bg-card px-4 text-[12px] uppercase tracking-widest text-foreground">
           <FilePlus2 className="mr-2 inline" size={14} />Duplicate template
         </button>
       </div>
@@ -147,7 +181,7 @@ export function ReplyTemplatesPage({ clients, projects, inventory }: Props) {
             {filtered.map((template) => (
               <button key={template.id} type="button" onClick={() => setSelectedId(template.id)} className="mb-1 min-h-14 w-full border px-3 py-2 text-left" style={{ borderColor: selected.id === template.id ? "var(--accent)" : "transparent", background: selected.id === template.id ? "#FBF7EE" : "transparent" }}>
                 <span className="block text-[11px] font-medium text-foreground">{template.title}</span>
-                <span className="mt-1 flex justify-between text-[9px] uppercase tracking-wider text-muted-foreground"><span>{template.category}</span><span>v{template.version}</span></span>
+                <span className="mt-1 flex justify-between text-[11px] uppercase tracking-wider text-muted-foreground"><span>{template.category}</span><span>v{template.version}</span></span>
               </button>
             ))}
             {!filtered.length && <p className="p-4 text-center text-[11px] text-muted-foreground">No matching templates.</p>}
@@ -157,8 +191,8 @@ export function ReplyTemplatesPage({ clients, projects, inventory }: Props) {
         <div className="space-y-5">
           <section className="border border-border bg-card p-4 sm:p-5">
             <div className="mb-4 flex items-center justify-between">
-              <div><p className="text-[9px] uppercase tracking-[0.2em] text-muted-foreground">Populate from records</p><p className="mt-1 text-[10px] text-muted-foreground">Project selection also suggests its client and price.</p></div>
-              <span className="text-[9px] text-muted-foreground">{APPROVED_VARIABLES.length} approved fields</span>
+              <div><p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Populate from records</p><p className="mt-1 text-[12px] text-muted-foreground">Project selection also suggests its client and price.</p></div>
+              <span className="text-[11px] text-muted-foreground">{APPROVED_VARIABLES.length} approved fields</span>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Project"><select value={projectId} onChange={(event) => setProjectId(event.target.value)} className="field"><option value="">Select a project</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.id} · {project.name}</option>)}</select></Field>
@@ -174,17 +208,17 @@ export function ReplyTemplatesPage({ clients, projects, inventory }: Props) {
 
           <section className="border border-border bg-card">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-5">
-              <div><p className="font-serif text-base text-foreground">{selected.title}</p><p className="text-[9px] uppercase tracking-wider text-muted-foreground">Version {selected.version} · {selected.builtIn ? "Seine Studio source" : "Local version"}</p></div>
-              <button type="button" onClick={saveVersion} className="min-h-11 px-3 text-[10px] uppercase tracking-wider text-muted-foreground"><History className="mr-2 inline" size={14} />Save new version</button>
+              <div><p className="font-serif text-base text-foreground">{selected.title}</p><p className="text-[11px] uppercase tracking-wider text-muted-foreground">Version {selected.version} · {selected.builtIn ? "Seine Studio source" : "Local version"}</p></div>
+              <button type="button" onClick={saveVersion} className="min-h-11 px-3 text-[12px] uppercase tracking-wider text-muted-foreground"><History className="mr-2 inline" size={14} />Save new version</button>
             </div>
             {rendered.missingVariables.length > 0 && (
-              <div className="mx-4 mt-4 flex gap-2 border border-amber-200 bg-amber-50 p-3 text-[10px] text-amber-900 sm:mx-5"><TriangleAlert size={14} className="shrink-0" /><span>Complete before sending: {rendered.missingVariables.map((name) => name.replaceAll("_", " ")).join(", ")}.</span></div>
+              <div className="mx-4 mt-4 flex gap-2 border border-amber-200 bg-amber-50 p-3 text-[12px] text-amber-900 sm:mx-5"><TriangleAlert size={14} className="shrink-0" /><span>Complete before sending: {rendered.missingVariables.map((name) => name.replaceAll("_", " ")).join(", ")}.</span></div>
             )}
             <div className="p-4 sm:p-5">
-              <label className="block text-[9px] uppercase tracking-[0.2em] text-muted-foreground" htmlFor="reply-copy">Editable reply</label>
+              <label className="block text-[11px] uppercase tracking-[0.2em] text-muted-foreground" htmlFor="reply-copy">Editable reply</label>
               <textarea id="reply-copy" value={editedReply} onChange={(event) => setEditedReply(event.target.value)} rows={9} className="mt-2 w-full resize-y border border-border bg-background p-4 text-[13px] leading-6 text-foreground outline-none focus:border-[#B8975A]" />
               <div className="mt-4 flex justify-end">
-                <button type="button" onClick={copyReply} disabled={!editedReply.trim()} className="min-h-11 bg-[#17140F] px-5 text-[10px] uppercase tracking-[0.16em] text-white disabled:opacity-40">
+                <button type="button" onClick={copyReply} disabled={!editedReply.trim()} className="min-h-11 bg-[#17140F] px-5 text-[12px] uppercase tracking-[0.16em] text-white disabled:opacity-40">
                   {copied ? <Check className="mr-2 inline" size={14} /> : <Copy className="mr-2 inline" size={14} />}{copied ? "Copied" : "Copy reply"}
                 </button>
               </div>
@@ -198,5 +232,5 @@ export function ReplyTemplatesPage({ clients, projects, inventory }: Props) {
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="block"><span className="mb-1.5 block text-[9px] uppercase tracking-[0.16em] text-muted-foreground">{label}</span>{children}</label>;
+  return <label className="block"><span className="mb-1.5 block text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{label}</span>{children}</label>;
 }
