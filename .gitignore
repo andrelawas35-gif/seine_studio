@@ -10,3 +10,5 @@ test-results/
 !.dev.vars.example
 .wrangler/
 backups/
+.vscode/mcp.json
+.mcp.json

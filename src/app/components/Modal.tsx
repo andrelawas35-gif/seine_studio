@@ -24,6 +24,42 @@ export function Modal({ open, onClose, title, subtitle, children, width = 480, f
     return () => document.removeEventListener("keydown", handler);
   }, [open, onClose]);
 
+  // Focus trap: keep Tab / Shift+Tab within the dialog
+  useEffect(() => {
+    if (!open) return;
+    const el = dialogRef.current;
+    if (!el) return;
+
+    const focusableSelector =
+      'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const focusable = el.querySelectorAll<HTMLElement>(focusableSelector);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    document.addEventListener("keydown", handler);
+
+    // Auto-focus first focusable element
+    const first = el.querySelector<HTMLElement>(focusableSelector);
+    if (first) first.focus();
+
+    return () => document.removeEventListener("keydown", handler);
+  }, [open]);
+
   // Prevent body scroll when modal is open
   useEffect(() => {
     if (open) {
@@ -74,8 +110,8 @@ export function Modal({ open, onClose, title, subtitle, children, width = 480, f
           borderRadius: 6,
           boxShadow: "0 24px 80px rgba(23,20,15,0.25), 0 0 0 1px rgba(23,20,15,0.08)",
           width: "100%",
-          maxWidth: width,
-          maxHeight: "85vh",
+          maxWidth: `min(${width}px, calc(100vw - 32px))`,
+          maxHeight: "80vh",
           display: "flex",
           flexDirection: "column",
           animation: "slideUp 0.25s cubic-bezier(0.34,1.56,0.64,1)",
@@ -125,9 +161,9 @@ export function Modal({ open, onClose, title, subtitle, children, width = 480, f
 
         {/* Body */}
         <div style={{
-          padding: "16px 20px",
+          padding: "20px 24px",
           overflowY: "auto",
-          flex: 1,
+          minHeight: 0,
           scrollbarWidth: "none",
         }}>
           {children}
@@ -226,8 +262,8 @@ interface FieldProps {
 
 export function Field({ label, required, children }: FieldProps) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-      <label style={{ fontSize: 9, letterSpacing: "0.18em", textTransform: "uppercase", color: "#7A6F5E", fontWeight: 500 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <label style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "#7A6F5E", fontWeight: 500 }}>
         {label}{required && <span style={{ color: "#B8975A", marginLeft: 2 }}>*</span>}
       </label>
       {children}
@@ -237,8 +273,8 @@ export function Field({ label, required, children }: FieldProps) {
 
 const inputBase: React.CSSProperties = {
   width: "100%",
-  padding: "7px 10px",
-  fontSize: 11,
+  padding: "8px 12px",
+  fontSize: 12,
   border: "1px solid rgba(23,20,15,0.15)",
   borderRadius: 4,
   background: "#F5F2EC",
@@ -283,7 +319,7 @@ export function Select({ style, onFocus, onBlur, ...props }: React.SelectHTMLAtt
 
 export function FormRow({ children, cols = 2 }: { children: ReactNode; cols?: number }) {
   return (
-    <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 12 }}>
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 16 }}>
       {children}
     </div>
   );

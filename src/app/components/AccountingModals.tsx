@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { php } from "../data";
 import type { Project } from "../data";
-import type { Expense, ExpenseCategory, Invoice, InvoiceStatus, Quote, QuoteStatus } from "../accountingData";
-import { Btn, Field, FormRow, Input, Modal, Select, Textarea } from "./Modal";
+import type { Expense, ExpenseCategory, Invoice, InvoiceStatus, Quote, QuoteStatus } from "../accountingTypes";
+import { Btn, Field, FormRow, Input, Modal, Textarea } from "./Modal";
 import { useToast } from "./Toast";
+import { Combobox } from "./ui/combobox";
 
 const EXP_CATS: ExpenseCategory[] = ["Materials", "Tools & Equipment", "Packaging", "Marketing", "Utilities", "Other"];
 
@@ -19,25 +20,28 @@ export function InvoiceModal({
   onSave: (inv: Invoice) => void;
 }) {
   const isEdit = !!invoice;
-  const [form, setForm] = useState<Omit<Invoice, "id" | "lineItems">>({
+  const [form, setForm] = useState<Omit<Invoice, "id" | "lineItems" | "depositPaid">>({
     projectId: invoice?.projectId ?? "",
     clientName: invoice?.clientName ?? "",
     issueDate: invoice?.issueDate ?? new Date().toISOString().slice(0, 10),
     dueDate: invoice?.dueDate ?? "",
     status: invoice?.status ?? "Draft",
-    depositPaid: invoice?.depositPaid ?? 0,
     notes: invoice?.notes ?? "",
   });
   const [desc, setDesc] = useState(invoice?.lineItems[0]?.description ?? "");
-  const [amount, setAmount] = useState(invoice?.lineItems[0]?.amount ?? 0);
+  const [amountRaw, setAmountRaw] = useState(invoice?.lineItems[0]?.amount ? String(invoice.lineItems[0].amount) : "");
+  const [depositRaw, setDepositRaw] = useState(invoice?.depositPaid ? String(invoice.depositPaid) : "");
   const { toast } = useToast();
+
+  const amount = parseFloat(amountRaw) || 0;
+  const depositPaid = parseFloat(depositRaw) || 0;
 
   const handleProjectChange = (pid: string) => {
     const proj = projects.find(p => p.id === pid);
     setForm(f => ({ ...f, projectId: pid, clientName: proj?.client ?? "" }));
     if (proj) {
       setDesc(proj.name);
-      setAmount(proj.price);
+      setAmountRaw(String(proj.price));
     }
   };
 
@@ -49,6 +53,7 @@ export function InvoiceModal({
     onSave({
       id: invoice?.id ?? "",
       ...form,
+      depositPaid,
       lineItems: [{ description: desc, amount }],
     });
     onClose();
@@ -63,12 +68,16 @@ export function InvoiceModal({
       subtitle="Generate a professional invoice tied to a project"
       footer={<><Btn variant="secondary" onClick={onClose}>Cancel</Btn><Btn onClick={handleSave}>{isEdit ? "Save Changes" : "Create Invoice"}</Btn></>}
     >
-      <div className="space-y-4">
+      <div className="space-y-5">
         <Field label="Project" required>
-          <Select value={form.projectId} onChange={e => handleProjectChange(e.target.value)}>
-            <option value="">Select project…</option>
-            {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </Select>
+          <Combobox
+            options={[{ value: "", label: "Select project…" }, ...projects.map(p => ({ value: p.id, label: p.name }))]}
+            value={form.projectId}
+            onValueChange={handleProjectChange}
+            placeholder="Select project…"
+            searchPlaceholder="Search project…"
+            aria-label="Project"
+          />
         </Field>
         <FormRow>
           <Field label="Issue Date" required>
@@ -83,18 +92,22 @@ export function InvoiceModal({
         </Field>
         <FormRow>
           <Field label="Amount (₱)" required>
-            <Input type="number" value={amount} onChange={e => setAmount(Number(e.target.value))} min={0} />
+            <Input type="text" inputMode="decimal" value={amountRaw} onChange={e => { const v = e.target.value; if (v === "" || /^\d*\.?\d{0,2}$/.test(v)) setAmountRaw(v); }} placeholder="0.00" />
           </Field>
           <Field label="Deposit Paid (₱)">
-            <Input type="number" value={form.depositPaid} onChange={e => setForm(f => ({ ...f, depositPaid: Number(e.target.value) }))} min={0} />
+            <Input type="text" inputMode="decimal" value={depositRaw} onChange={e => { const v = e.target.value; if (v === "" || /^\d*\.?\d{0,2}$/.test(v)) setDepositRaw(v); }} placeholder="0.00" />
           </Field>
         </FormRow>
         <FormRow>
           <Field label="Status">
-            <Select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value as InvoiceStatus }))}>
-              {(["Draft", "Sent", "Paid", "Overdue", "Cancelled"] as InvoiceStatus[]).map(s =>
-                <option key={s} value={s}>{s}</option>)}
-            </Select>
+            <Combobox
+              options={(["Draft", "Sent", "Paid", "Overdue", "Cancelled"] as InvoiceStatus[]).map(s => ({ value: s, label: s }))}
+              value={form.status}
+              onValueChange={(v) => setForm(f => ({ ...f, status: v as InvoiceStatus }))}
+              placeholder="Select status…"
+              searchPlaceholder="Search status…"
+              aria-label="Invoice status"
+            />
           </Field>
         </FormRow>
         <Field label="Notes">
@@ -102,10 +115,10 @@ export function InvoiceModal({
         </Field>
         {amount > 0 && (
           <div className="p-3 rounded border bg-[#F5F0E8] border-[#D4B87A]/30">
-            <p className="text-[9px] tracking-[0.15em] uppercase text-[#8B6914] mb-1">Invoice Summary</p>
+            <p className="text-[11px] tracking-[0.15em] uppercase text-[#8B6914] mb-1">Invoice Summary</p>
             <div className="flex items-center justify-between">
               <p className="text-[11px] text-[#5A4030]">Total: <span className="font-mono font-semibold">{php(amount)}</span></p>
-              <p className="text-[11px] text-[#5A4030]">Balance due: <span className="font-mono font-semibold text-[#C0392B]">{php(amount - form.depositPaid)}</span></p>
+              <p className="text-[11px] text-[#5A4030]">Balance due: <span className="font-mono font-semibold text-[#C0392B]">{php(amount - depositPaid)}</span></p>
             </div>
           </div>
         )}
@@ -125,18 +138,21 @@ export function QuoteModal({
   onSave: (q: Quote) => void;
 }) {
   const isEdit = !!quote?.id;
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<Omit<Quote, "id" | "lineItems" | "depositRequired">>({
     projectId: quote?.projectId ?? "",
     clientName: quote?.clientName ?? "",
     issueDate: quote?.issueDate ?? new Date().toISOString().slice(0, 10),
     expiryDate: quote?.expiryDate ?? "",
     status: quote?.status ?? "Draft" as QuoteStatus,
-    depositRequired: quote?.depositRequired ?? 0,
     notes: quote?.notes ?? "",
   });
   const [desc, setDesc] = useState(quote?.lineItems[0]?.description ?? "");
-  const [amount, setAmount] = useState(quote?.lineItems[0]?.amount ?? 0);
+  const [amountRaw, setAmountRaw] = useState(quote?.lineItems[0]?.amount ? String(quote.lineItems[0].amount) : "");
+  const [depositRaw, setDepositRaw] = useState(quote?.depositRequired ? String(quote.depositRequired) : "");
   const { toast } = useToast();
+
+  const amount = parseFloat(amountRaw) || 0;
+  const depositRequired = parseFloat(depositRaw) || 0;
 
   useEffect(() => {
     if (!open) return;
@@ -146,11 +162,11 @@ export function QuoteModal({
       issueDate: quote?.issueDate ?? new Date().toISOString().slice(0, 10),
       expiryDate: quote?.expiryDate ?? "",
       status: quote?.status ?? "Draft",
-      depositRequired: quote?.depositRequired ?? 0,
       notes: quote?.notes ?? "",
     });
     setDesc(quote?.lineItems[0]?.description ?? "");
-    setAmount(quote?.lineItems[0]?.amount ?? 0);
+    setAmountRaw(quote?.lineItems[0]?.amount ? String(quote.lineItems[0].amount) : "");
+    setDepositRaw(quote?.depositRequired ? String(quote.depositRequired) : "");
   }, [open, quote]);
 
   const handleProjectChange = (pid: string) => {
@@ -158,8 +174,10 @@ export function QuoteModal({
     setForm(f => ({ ...f, projectId: pid, clientName: proj?.client ?? "" }));
     if (proj) {
       setDesc(proj.name);
-      setAmount(proj.price);
-      setForm(f => ({ ...f, depositRequired: Math.round(proj.price * 0.5), projectId: pid, clientName: proj.client }));
+      setAmountRaw(String(proj.price));
+      const depo = Math.round(proj.price * 0.5);
+      setDepositRaw(String(depo));
+      setForm(f => ({ ...f, projectId: pid, clientName: proj.client }));
     }
   };
 
@@ -168,7 +186,7 @@ export function QuoteModal({
       toast.error("Please fill all required fields");
       return;
     }
-    onSave({ id: quote?.id ?? "", ...form, lineItems: [{ description: desc, amount }] });
+    onSave({ id: quote?.id ?? "", ...form, depositRequired, lineItems: [{ description: desc, amount }] });
     onClose();
     toast.success(isEdit ? "Quote updated" : "Quote created", form.clientName);
   };
@@ -181,12 +199,16 @@ export function QuoteModal({
       subtitle="Send a formal price estimate before a commission begins"
       footer={<><Btn variant="secondary" onClick={onClose}>Cancel</Btn><Btn onClick={handleSave}>{isEdit ? "Save Changes" : "Create Quote"}</Btn></>}
     >
-      <div className="space-y-4">
+      <div className="space-y-5">
         <Field label="Project" required>
-          <Select value={form.projectId} onChange={e => handleProjectChange(e.target.value)}>
-            <option value="">Select project…</option>
-            {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </Select>
+          <Combobox
+            options={[{ value: "", label: "Select project…" }, ...projects.map(p => ({ value: p.id, label: p.name }))]}
+            value={form.projectId}
+            onValueChange={handleProjectChange}
+            placeholder="Select project…"
+            searchPlaceholder="Search project…"
+            aria-label="Project"
+          />
         </Field>
         <FormRow>
           <Field label="Issue Date" required>
@@ -201,27 +223,31 @@ export function QuoteModal({
         </Field>
         <FormRow>
           <Field label="Quoted Amount (₱)" required>
-            <Input type="number" value={amount} onChange={e => setAmount(Number(e.target.value))} min={0} />
+            <Input type="text" inputMode="decimal" value={amountRaw} onChange={e => { const v = e.target.value; if (v === "" || /^\d*\.?\d{0,2}$/.test(v)) setAmountRaw(v); }} placeholder="0.00" />
           </Field>
           <Field label="Deposit Required (₱)">
-            <Input type="number" value={form.depositRequired} onChange={e => setForm(f => ({ ...f, depositRequired: Number(e.target.value) }))} min={0} />
+            <Input type="text" inputMode="decimal" value={depositRaw} onChange={e => { const v = e.target.value; if (v === "" || /^\d*\.?\d{0,2}$/.test(v)) setDepositRaw(v); }} placeholder="0.00" />
           </Field>
         </FormRow>
         <Field label="Status">
-          <Select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value as QuoteStatus }))}>
-            {(["Draft", "Sent", "Accepted", "Declined", "Expired"] as QuoteStatus[]).map(s =>
-              <option key={s} value={s}>{s}</option>)}
-          </Select>
+          <Combobox
+            options={(["Draft", "Sent", "Accepted", "Declined", "Expired"] as QuoteStatus[]).map(s => ({ value: s, label: s }))}
+            value={form.status}
+            onValueChange={(v) => setForm(f => ({ ...f, status: v as QuoteStatus }))}
+            placeholder="Select status…"
+            searchPlaceholder="Search status…"
+            aria-label="Quote status"
+          />
         </Field>
         <Field label="Notes">
           <Textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Terms, validity period, special conditions…" rows={2} />
         </Field>
         {amount > 0 && (
           <div className="p-3 rounded border bg-[#F5F0E8] border-[#D4B87A]/30">
-            <p className="text-[9px] tracking-[0.15em] uppercase text-[#8B6914] mb-1">Quote Summary</p>
+            <p className="text-[11px] tracking-[0.15em] uppercase text-[#8B6914] mb-1">Quote Summary</p>
             <div className="flex items-center justify-between">
               <p className="text-[11px] text-[#5A4030]">Total: <span className="font-mono font-semibold">{php(amount)}</span></p>
-              <p className="text-[11px] text-[#5A4030]">Deposit: <span className="font-mono font-semibold">{php(form.depositRequired)}</span> ({amount > 0 ? Math.round((form.depositRequired / amount) * 100) : 0}%)</p>
+              <p className="text-[11px] text-[#5A4030]">Deposit: <span className="font-mono font-semibold">{php(depositRequired)}</span> ({amount > 0 ? Math.round((depositRequired / amount) * 100) : 0}%)</p>
             </div>
           </div>
         )}
@@ -249,14 +275,17 @@ export function ExpenseModal({
     supplier: expense?.supplier ?? "",
     notes: expense?.notes ?? "",
   });
+  const [amountRaw, setAmountRaw] = useState(expense?.amount ? String(expense.amount) : "");
   const { toast } = useToast();
 
+  const amount = parseFloat(amountRaw) || 0;
+
   const handleSave = () => {
-    if (!form.description || form.amount <= 0) {
+    if (!form.description || amount <= 0) {
       toast.error("Please fill all required fields");
       return;
     }
-    onSave({ id: expense?.id ?? "", ...form });
+    onSave({ id: expense?.id ?? "", ...form, amount });
     onClose();
     toast.success(isEdit ? "Expense updated" : "Expense recorded", form.description);
   };
@@ -269,15 +298,20 @@ export function ExpenseModal({
       subtitle="Record a business cost or supplier payment"
       footer={<><Btn variant="secondary" onClick={onClose}>Cancel</Btn><Btn onClick={handleSave}>{isEdit ? "Save Changes" : "Log Expense"}</Btn></>}
     >
-      <div className="space-y-4">
+      <div className="space-y-5">
         <FormRow>
           <Field label="Date" required>
             <Input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
           </Field>
           <Field label="Category" required>
-            <Select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value as ExpenseCategory }))}>
-              {EXP_CATS.map(c => <option key={c} value={c}>{c}</option>)}
-            </Select>
+            <Combobox
+              options={EXP_CATS.map(c => ({ value: c, label: c }))}
+              value={form.category}
+              onValueChange={(v) => setForm(f => ({ ...f, category: v as ExpenseCategory }))}
+              placeholder="Select category…"
+              searchPlaceholder="Search category…"
+              aria-label="Expense category"
+            />
           </Field>
         </FormRow>
         <Field label="Description" required>
@@ -285,7 +319,7 @@ export function ExpenseModal({
         </Field>
         <FormRow>
           <Field label="Amount (₱)" required>
-            <Input type="number" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: Number(e.target.value) }))} min={0} />
+            <Input type="text" inputMode="decimal" value={amountRaw} onChange={e => { const v = e.target.value; if (v === "" || /^\d*\.?\d{0,2}$/.test(v)) setAmountRaw(v); }} placeholder="0.00" />
           </Field>
           <Field label="Supplier">
             <Input value={form.supplier} onChange={e => setForm(f => ({ ...f, supplier: e.target.value }))} placeholder="Supplier name…" />

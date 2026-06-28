@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FileText, Plus, Search, X } from "lucide-react";
+import { FileText, Lock, Plus, Search, X } from "lucide-react";
 import { apiRequest } from "../api";
 import { Combobox, type ComboboxOption } from "./ui/combobox";
+import { MasterDetail } from "./ui/master-detail";
 import { DocumentCanvas, DocumentLineTable, DocumentTotals, type DocumentMeta } from "./DocumentCanvas";
+import { useDebouncedValue } from "./ui/use-debounced-value";
+import { Modal } from "./Modal";
 import { php } from "../data";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -93,23 +96,41 @@ export function InvoicesPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search);
   const [statusFilter, setStatusFilter] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<InvoiceDetail | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
-  const [mobileView, setMobileView] = useState<"list" | "detail">("list");
 
   // Create form
   const [clientId, setClientId] = useState("");
   const [clientOptions, setClientOptions] = useState<ComboboxOption[]>([]);
-  const [subtotal, setSubtotal] = useState(0);
-  const [discount, setDiscount] = useState(0);
-  const [tax, setTax] = useState(0);
+  const [lineItems, setLineItems] = useState<Array<{ id: string; description: string; amountRaw: string }>>([
+    { id: "1", description: "", amountRaw: "" },
+  ]);
+  const [discountRaw, setDiscountRaw] = useState("");
+  const [taxRaw, setTaxRaw] = useState("");
   const [depositPct, setDepositPct] = useState(50);
   const [dueDate, setDueDate] = useState("");
   const [invNotes, setInvNotes] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // Computed from line items
+  const subtotalCents = lineItems.reduce((sum, li) => sum + Math.round((parseFloat(li.amountRaw) || 0) * 100), 0);
+  const discountCents = Math.round((parseFloat(discountRaw) || 0) * 100);
+  const taxCents = Math.round((parseFloat(taxRaw) || 0) * 100);
+  const totalCents = Math.max(0, subtotalCents - discountCents + taxCents);
+
+  const addLineItem = () => {
+    setLineItems((prev) => [...prev, { id: crypto.randomUUID(), description: "", amountRaw: "" }]);
+  };
+  const removeLineItem = (id: string) => {
+    setLineItems((prev) => (prev.length <= 1 ? prev : prev.filter((li) => li.id !== id)));
+  };
+  const updateLineItem = (id: string, field: "description" | "amountRaw", value: string) => {
+    setLineItems((prev) => prev.map((li) => (li.id === id ? { ...li, [field]: value } : li)));
+  };
 
   // Payment form
   const [paymentAmount, setPaymentAmount] = useState("");
@@ -125,7 +146,7 @@ export function InvoicesPage() {
     setError(null);
     try {
       const params = new URLSearchParams();
-      if (search) params.set("q", search);
+      if (debouncedSearch) params.set("q", debouncedSearch);
       if (statusFilter) params.set("status", statusFilter);
       params.set("limit", "50");
       const result = await apiRequest<{ data: InvoiceRecord[] }>(`/api/invoices?${params.toString()}`);
@@ -135,7 +156,7 @@ export function InvoicesPage() {
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter]);
+  }, [debouncedSearch, statusFilter]);
 
   const fetchDetail = useCallback(async (id: string) => {
     if (!USE_DATABASE) return;
@@ -153,23 +174,26 @@ export function InvoicesPage() {
     setClientOptions((result.data || []).map((c) => ({ value: c.id, label: c.name })));
   };
 
-  const totalCents = Math.max(0, subtotal - discount + tax);
-
   const handleCreate = async () => {
     if (!clientId || totalCents <= 0) return;
+    const validLines = lineItems.filter((li) => li.description.trim() && parseFloat(li.amountRaw) > 0);
     setSaving(true);
     try {
       await apiRequest("/api/invoices", {
         method: "POST",
         body: JSON.stringify({
           clientId,
-          subtotalCents: subtotal,
-          discountCents: discount,
-          taxCents: tax,
+          subtotalCents,
+          discountCents,
+          taxCents,
           totalCents,
           depositPercent: depositPct || undefined,
           dueDate: dueDate ? new Date(dueDate).toISOString() : undefined,
           notes: invNotes || undefined,
+          lineItems: validLines.map((li) => ({
+            description: li.description.trim(),
+            amountCents: Math.round(parseFloat(li.amountRaw) * 100),
+          })),
         }),
       });
       setShowCreate(false);
@@ -221,9 +245,9 @@ export function InvoicesPage() {
 
   const resetCreateForm = () => {
     setClientId("");
-    setSubtotal(0);
-    setDiscount(0);
-    setTax(0);
+    setLineItems([{ id: "1", description: "", amountRaw: "" }]);
+    setDiscountRaw("");
+    setTaxRaw("");
     setDepositPct(50);
     setDueDate("");
     setInvNotes("");
@@ -248,6 +272,8 @@ export function InvoicesPage() {
     };
   }, [detail]);
 
+  const isInvoiceLocked = detail?.status === "sent" || detail?.status === "partially_paid" || detail?.status === "paid" || detail?.status === "overdue" || detail?.status === "void" || detail?.status === "refunded";
+
   if (!USE_DATABASE) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-3 text-muted-foreground">
@@ -258,68 +284,65 @@ export function InvoicesPage() {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 sm:px-5 py-4 border-b border-border bg-card">
-        <p className="text-[11px] uppercase tracking-[0.22em] text-accent">Invoices</p>
-        <button type="button" onClick={() => { void fetchClientsForCreate(); setShowCreate(true); }} className="inline-flex items-center gap-1.5 min-h-9 px-3 border border-border bg-card text-[12px] hover:border-accent/40 transition-colors">
-          <Plus size={13} /> Create invoice
-        </button>
-      </div>
-
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-2 px-4 sm:px-5 py-3 border-b border-border bg-card">
-        <div className="relative flex-1 min-w-[160px] max-w-[320px]">
-          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search invoices…" className="w-full min-h-9 pl-8 pr-3 border border-border bg-card text-[13px] outline-none focus:border-accent/40" />
-        </div>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="min-h-9 border border-border bg-card px-2 text-[13px] outline-none">
-          <option value="">All statuses</option>
-          {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-        </select>
-      </div>
-
-      {/* Content */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* List */}
-        <div className={`${selectedId && mobileView === "detail" ? "hidden" : "flex"} md:flex flex-col w-full md:w-80 lg:w-96 border-r border-border overflow-y-auto`}>
-          {loading && <p className="p-4 text-[12px] text-muted-foreground">Loading…</p>}
-          {error && <p className="p-4 text-[12px] text-destructive">{error}</p>}
-          {!loading && !error && invoices.length === 0 && (
-            <div className="p-8 text-center">
-              <FileText size={24} className="mx-auto text-accent/30 mb-2" />
-              <p className="text-[13px] text-muted-foreground">No invoices yet</p>
-            </div>
-          )}
-          {invoices.map((inv) => (
-            <button key={inv.id} type="button" onClick={() => { setSelectedId(inv.id); setMobileView("detail"); }} className={`w-full text-left px-4 py-3 border-b border-border hover:bg-muted/30 transition-colors ${selectedId === inv.id ? "bg-accent/5 border-l-2 border-l-accent" : ""}`}>
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-[13px] font-medium text-foreground truncate">{inv.clientName || inv.invoiceNumber}</p>
-                <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium border rounded ${STATUS_STYLES[inv.status] || ""}`}>{STATUS_LABELS[inv.status] || inv.status}</span>
-              </div>
-              <p className="text-[11px] text-muted-foreground font-mono mt-0.5">{inv.invoiceNumber}</p>
-              <div className="flex items-center justify-between mt-1">
-                <p className="text-[12px] tabular-nums font-medium">{php(inv.totalCents / 100)}</p>
-                {inv.paidCents > 0 && <p className="text-[11px] text-emerald-700">{php(inv.paidCents / 100)} paid</p>}
-              </div>
+    <>
+      <MasterDetail
+        hasSelection={!!selectedId}
+        loading={loading}
+        error={error}
+        isEmpty={!loading && !error && invoices.length === 0}
+        emptyState={
+          <div className="p-8 text-center">
+            <FileText size={24} className="mx-auto text-accent/30 mb-2" />
+            <p className="text-[13px] text-muted-foreground">No invoices yet</p>
+          </div>
+        }
+        header={
+          <div className="flex items-center justify-between px-4 sm:px-5 py-4 border-b border-border bg-card">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-accent">Invoices</p>
+            <button type="button" onClick={() => { void fetchClientsForCreate(); setShowCreate(true); }} className="inline-flex items-center gap-1.5 min-h-9 px-3 border border-border bg-card text-[12px] hover:border-accent/40 transition-colors">
+              <Plus size={13} /> Create invoice
             </button>
-          ))}
-        </div>
-
-        {/* Detail */}
-        <div className={`${mobileView === "list" ? "hidden" : "flex"} md:flex flex-1 flex-col overflow-y-auto`}>
-          {!selectedId && (
-            <div className="flex-1 flex items-center justify-center text-muted-foreground">
-              <p className="text-[13px]">Select an invoice or create a new one</p>
+          </div>
+        }
+        toolbar={
+          <>
+            <div className="relative flex-1 min-w-[160px] max-w-[320px]">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search invoices…" className="w-full min-h-9 pl-8 pr-3 border border-border bg-card text-[13px] outline-none focus:border-accent/40" />
             </div>
-          )}
-
-          {selectedId && detail && (
-            <div className="flex-1 overflow-y-auto">
-              <button type="button" onClick={() => setMobileView("list")} className="md:hidden flex items-center gap-1 px-4 py-2 text-[12px] text-accent border-b border-border">
-                ← Back to list
+            <Combobox
+              options={[
+                { value: "", label: "All statuses" },
+                ...Object.entries(STATUS_LABELS).map(([k, v]) => ({ value: k, label: v })),
+              ]}
+              value={statusFilter}
+              onValueChange={setStatusFilter}
+              placeholder="Filter status…"
+              searchPlaceholder="Search status…"
+              aria-label="Filter by status"
+            />
+          </>
+        }
+        sidebar={
+          <>
+            {invoices.map((inv) => (
+              <button key={inv.id} type="button" onClick={() => setSelectedId(inv.id)} className={`w-full text-left px-4 py-3 border-b border-border hover:bg-muted/30 transition-colors ${selectedId === inv.id ? "bg-accent/5 border-l-2 border-l-accent" : ""}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[13px] font-medium text-foreground truncate">{inv.clientName || inv.invoiceNumber}</p>
+                  <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium border rounded ${STATUS_STYLES[inv.status] || ""}`}>{STATUS_LABELS[inv.status] || inv.status}</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground font-mono mt-0.5">{inv.invoiceNumber}</p>
+                <div className="flex items-center justify-between mt-1">
+                  <p className="text-[12px] tabular-nums font-medium">{php(inv.totalCents / 100)}</p>
+                  {inv.paidCents > 0 && <p className="text-[11px] text-emerald-700">{php(inv.paidCents / 100)} paid</p>}
+                </div>
               </button>
-
+            ))}
+          </>
+        }
+        detail={
+          detail ? (
+            <div className="flex-1 overflow-y-auto">
               {/* Info bar */}
               <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-border bg-card">
                 <div>
@@ -327,6 +350,12 @@ export function InvoicesPage() {
                   <p className="text-[11px] text-muted-foreground font-mono">{detail.invoiceNumber}</p>
                 </div>
                 <div className="flex items-center gap-2">
+                  {isInvoiceLocked && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium border border-amber-200 bg-amber-50 text-amber-700 rounded" title="This invoice is locked — only payments, void, or refund are allowed.">
+                      <Lock size={10} />
+                      Locked
+                    </span>
+                  )}
                   <span className={`inline-flex items-center px-2 py-0.5 text-[10px] font-medium border rounded ${STATUS_STYLES[detail.status] || ""}`}>{STATUS_LABELS[detail.status] || detail.status}</span>
                   <span className="text-[12px] tabular-nums font-medium">{php(detail.totalCents / 100)}</span>
                 </div>
@@ -349,10 +378,16 @@ export function InvoicesPage() {
                   <p className="text-[13px] text-emerald-700 font-medium">Fully paid</p>
                 )}
                 {detail.status === "draft" && (
-                  <button type="button" onClick={() => handleStatusChange(detail.id, "sent")} className="text-[11px] text-accent hover:underline">Mark sent</button>
+                  <button type="button" onClick={() => handleStatusChange(detail.id, "sent")} className="text-[11px] text-accent hover:underline">Issue invoice</button>
+                )}
+                {!isInvoiceLocked && detail.status !== "draft" && (
+                  <p className="text-[11px] text-muted-foreground">Draft — issue to lock</p>
                 )}
                 {(detail.status === "sent" || detail.status === "partially_paid" || detail.status === "overdue") && (
                   <button type="button" onClick={() => handleStatusChange(detail.id, "void")} className="text-[11px] text-destructive hover:underline">Void</button>
+                )}
+                {isInvoiceLocked && detail.status !== "void" && detail.status !== "refunded" && (
+                  <span className="text-[10px] text-muted-foreground">Locked · payments only</span>
                 )}
               </div>
 
@@ -435,35 +470,90 @@ export function InvoicesPage() {
                 </div>
               )}
             </div>
-          )}
-        </div>
-      </div>
+          ) : null
+        }
+        noSelectionPlaceholder={
+          <p className="text-[13px]">Select an invoice or create a new one</p>
+        }
+      />
 
       {/* Create modal */}
       {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setShowCreate(false)}>
-          <div className="bg-card border border-border shadow-xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-              <p className="text-[13px] font-medium">Create invoice</p>
-              <button type="button" onClick={() => setShowCreate(false)} className="p-1"><X size={15} /></button>
-            </div>
-            <div className="p-5 space-y-4">
+        <Modal
+          open={showCreate}
+          onClose={() => setShowCreate(false)}
+          title="Create invoice"
+          width={480}
+          footer={
+            <>
+              <button type="button" onClick={() => setShowCreate(false)} className="min-h-9 px-4 text-[12px] text-muted-foreground hover:text-foreground">Cancel</button>
+              <button type="button" onClick={handleCreate} disabled={!clientId || totalCents <= 0 || saving} className="min-h-9 px-4 border border-accent/40 bg-accent text-white text-[12px] disabled:opacity-40">{saving ? "Creating…" : "Create invoice"}</button>
+            </>
+          }
+        >
+          <div className="space-y-4">
               <div>
                 <label className="block text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Client *</label>
                 <Combobox options={clientOptions} value={clientId} onValueChange={setClientId} placeholder="Select client…" searchPlaceholder="Search clients…" emptyMessage="No clients found." />
               </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Subtotal</label>
-                  <input type="number" min={0} value={subtotal || ""} onChange={(e) => setSubtotal(Math.round(parseFloat(e.target.value || "0") * 100))} className="w-full min-h-10 border border-border bg-card px-3 text-[13px] outline-none focus:border-accent/40" />
+
+              {/* Line items */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Line items</label>
+                  <button type="button" onClick={addLineItem} className="text-[11px] text-accent hover:underline">+ Add line</button>
                 </div>
+                <div className="space-y-2">
+                  {lineItems.map((li, i) => (
+                    <div key={li.id} className="flex items-start gap-2">
+                      <div className="flex-1 space-y-1">
+                        {i === 0 && <span className="text-[9px] uppercase tracking-[0.14em] text-muted-foreground">Description</span>}
+                        <input
+                          type="text"
+                          value={li.description}
+                          onChange={(e) => updateLineItem(li.id, "description", e.target.value)}
+                          placeholder="E.g. Custom ring, 18K gold…"
+                          className="w-full min-h-9 border border-border bg-card px-2 text-[12px] outline-none focus:border-accent/40"
+                        />
+                      </div>
+                      <div className="w-28 space-y-1">
+                        {i === 0 && <span className="text-[9px] uppercase tracking-[0.14em] text-muted-foreground">Amount (₱)</span>}
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={li.amountRaw}
+                          onChange={(e) => { const v = e.target.value; if (v === "" || /^\d*\.?\d{0,2}$/.test(v)) updateLineItem(li.id, "amountRaw", v); }}
+                          placeholder="0.00"
+                          className="w-full min-h-9 border border-border bg-card px-2 text-[12px] outline-none focus:border-accent/40 tabular-nums"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeLineItem(li.id)}
+                        disabled={lineItems.length <= 1}
+                        className="mt-[18px] min-h-9 min-w-9 grid place-items-center text-muted-foreground hover:text-red-600 disabled:opacity-30"
+                        aria-label="Remove line"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                {subtotalCents > 0 && (
+                  <p className="mt-2 text-right text-[12px] text-muted-foreground tabular-nums">
+                    Subtotal: {php(subtotalCents / 100)}
+                  </p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Discount</label>
-                  <input type="number" min={0} value={discount || ""} onChange={(e) => setDiscount(Math.round(parseFloat(e.target.value || "0") * 100))} className="w-full min-h-10 border border-border bg-card px-3 text-[13px] outline-none focus:border-accent/40" />
+                  <input type="text" inputMode="decimal" value={discountRaw} onChange={(e) => { const v = e.target.value; if (v === "" || /^\d*\.?\d{0,2}$/.test(v)) setDiscountRaw(v); }} placeholder="0.00" className="w-full min-h-10 border border-border bg-card px-3 text-[13px] outline-none focus:border-accent/40 tabular-nums" />
                 </div>
                 <div>
                   <label className="block text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Tax</label>
-                  <input type="number" min={0} value={tax || ""} onChange={(e) => setTax(Math.round(parseFloat(e.target.value || "0") * 100))} className="w-full min-h-10 border border-border bg-card px-3 text-[13px] outline-none focus:border-accent/40" />
+                  <input type="text" inputMode="decimal" value={taxRaw} onChange={(e) => { const v = e.target.value; if (v === "" || /^\d*\.?\d{0,2}$/.test(v)) setTaxRaw(v); }} placeholder="0.00" className="w-full min-h-10 border border-border bg-card px-3 text-[13px] outline-none focus:border-accent/40 tabular-nums" />
                 </div>
               </div>
               <p className="text-right text-[13px] font-medium tabular-nums">Total: {php(totalCents / 100)}</p>
@@ -479,24 +569,25 @@ export function InvoicesPage() {
                 <label className="block text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Notes</label>
                 <textarea value={invNotes} onChange={(e) => setInvNotes(e.target.value)} rows={2} className="w-full border border-border bg-card px-3 py-2 text-[13px] outline-none focus:border-accent/40 resize-none" />
               </div>
-            </div>
-            <div className="flex justify-end gap-2 px-5 py-4 border-t border-border">
-              <button type="button" onClick={() => setShowCreate(false)} className="min-h-9 px-4 text-[12px] text-muted-foreground hover:text-foreground">Cancel</button>
-              <button type="button" onClick={handleCreate} disabled={!clientId || totalCents <= 0 || saving} className="min-h-9 px-4 border border-accent/40 bg-accent text-white text-[12px] disabled:opacity-40">{saving ? "Creating…" : "Create invoice"}</button>
-            </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* Payment modal */}
       {showPayment && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setShowPayment(false)}>
-          <div className="bg-card border border-border shadow-xl w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-              <p className="text-[13px] font-medium">Record payment</p>
-              <button type="button" onClick={() => setShowPayment(false)} className="p-1"><X size={15} /></button>
-            </div>
-            <div className="p-5 space-y-4">
+        <Modal
+          open={showPayment}
+          onClose={() => setShowPayment(false)}
+          title="Record payment"
+          width={400}
+          footer={
+            <>
+              <button type="button" onClick={() => setShowPayment(false)} className="min-h-9 px-4 text-[12px] text-muted-foreground hover:text-foreground">Cancel</button>
+              <button type="button" onClick={handleRecordPayment} disabled={!paymentAmount || paymentSaving} className="min-h-9 px-4 border border-accent/40 bg-accent text-white text-[12px] disabled:opacity-40">{paymentSaving ? "Recording…" : "Record payment"}</button>
+            </>
+          }
+        >
+          <div className="space-y-4">
               <div>
                 <label className="block text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Amount *</label>
                 <input type="number" min={0.01} step={0.01} value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} placeholder="0.00" className="w-full min-h-10 border border-border bg-card px-3 text-[13px] outline-none focus:border-accent/40" />
@@ -517,14 +608,9 @@ export function InvoicesPage() {
                 <label className="block text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Notes</label>
                 <textarea value={paymentNotes} onChange={(e) => setPaymentNotes(e.target.value)} rows={2} className="w-full border border-border bg-card px-3 py-2 text-[13px] outline-none focus:border-accent/40 resize-none" />
               </div>
-            </div>
-            <div className="flex justify-end gap-2 px-5 py-4 border-t border-border">
-              <button type="button" onClick={() => setShowPayment(false)} className="min-h-9 px-4 text-[12px] text-muted-foreground hover:text-foreground">Cancel</button>
-              <button type="button" onClick={handleRecordPayment} disabled={!paymentAmount || paymentSaving} className="min-h-9 px-4 border border-accent/40 bg-accent text-white text-[12px] disabled:opacity-40">{paymentSaving ? "Recording…" : "Record payment"}</button>
-            </div>
           </div>
-        </div>
+        </Modal>
       )}
-    </div>
+    </>
   );
 }

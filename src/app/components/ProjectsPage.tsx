@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Archive, Download, Edit3, FolderOpen, Plus, Search } from "lucide-react";
+import { Archive, Download, Edit3, FolderOpen, Plus, ReceiptText, Search } from "lucide-react";
 import { useNavigate, useParams } from "react-router";
 import { apiRequest, ApiError } from "../api";
 import {
@@ -16,9 +16,10 @@ import {
   type ProjectRecord,
   type ProjectStage,
 } from "../projects";
-import { INITIAL_CLIENTS, INITIAL_PROJECTS, fmtDate } from "../data";
+import { INITIAL_CLIENTS, INITIAL_PROJECTS, fmtDate, php } from "../data";
 import { Btn, ConfirmDialog, Field, FormRow, Input, Modal, Textarea } from "./Modal";
 import { Combobox } from "./ui/combobox";
+import { PiecePicker } from "./ui/piece-picker";
 import { useToast } from "./Toast";
 import { exportCsv, exportJson, timestamp } from "../exports";
 import { useDraft } from "../useDraft";
@@ -34,6 +35,7 @@ interface ProjectDetailResponse {
   data: {
     project: Omit<ProjectRecord, "source">;
     activity: ProjectActivity[];
+    finance?: { agreedPriceCents: number; invoicedCents: number; paidCents: number };
   };
 }
 
@@ -58,6 +60,7 @@ function ProjectForm({
   onSaveDraft,
   onLoadDraft,
   onDiscardDraft,
+  isNew,
 }: {
   initial: ProjectFormValues;
   saving: boolean;
@@ -69,6 +72,7 @@ function ProjectForm({
   onSaveDraft: (values: ProjectFormValues) => Promise<void>;
   onLoadDraft: (draft: Draft) => ProjectFormValues;
   onDiscardDraft: (id: string) => Promise<void>;
+  isNew: boolean;
 }) {
   const [values, setValues] = useState(initial);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +84,6 @@ function ProjectForm({
     event.preventDefault();
     setError(null);
     if (!values.title.trim()) { setError("Project title is required."); return; }
-    if (!values.projectNumber.trim()) { setError("Project number is required."); return; }
     if (!values.clientId) { setError("Client is required."); return; }
     try {
       await onSave(values);
@@ -106,19 +109,28 @@ function ProjectForm({
       )}
       {error && <p role="alert" className="border border-red-200 bg-red-50 p-3 text-[12px] text-red-700">{error}</p>}
       <FormRow>
-        <Field label="Project number" required>
-          <Input aria-label="Project number" value={values.projectNumber} onChange={(e) => set("projectNumber", e.target.value)} placeholder="SS-001" maxLength={40} autoFocus />
+        <Field label="Project number" required={false}>
+          <Input aria-label="Project number" value={values.projectNumber} onChange={(e) => set("projectNumber", e.target.value)} placeholder={isNew ? "Auto-generated · PRJ-XXXX" : "SS-001"} maxLength={40} autoFocus />
         </Field>
-        <Field label="Stage">
-          <Combobox
-            aria-label="Stage"
-            value={values.stage}
-            onValueChange={(v) => set("stage", v as ProjectStage)}
-            options={STAGE_ORDER.map((s) => ({ value: s, label: STAGE_LABELS[s] }))}
-            placeholder="Select stage"
-            searchPlaceholder="Search stages..."
-          />
-        </Field>
+        {!isNew && (
+          <Field label="Stage">
+            <Combobox
+              aria-label="Stage"
+              value={values.stage}
+              onValueChange={(v) => set("stage", v as ProjectStage)}
+              options={STAGE_ORDER.map((s) => ({ value: s, label: STAGE_LABELS[s] }))}
+              placeholder="Select stage"
+              searchPlaceholder="Search stages..."
+            />
+          </Field>
+        )}
+        {isNew && (
+          <Field label="Stage">
+            <div className="min-h-10 flex items-center border border-border bg-muted/20 px-3">
+              <p className="text-[12px] text-muted-foreground">Inquiry (default for new projects)</p>
+            </div>
+          </Field>
+        )}
       </FormRow>
       <Field label="Title" required>
         <Input aria-label="Title" value={values.title} onChange={(e) => set("title", e.target.value)} placeholder="Custom pearl necklace" maxLength={200} />
@@ -131,6 +143,13 @@ function ProjectForm({
           options={clients.map((c) => ({ value: c.id, label: c.name }))}
           placeholder="Select a client"
           searchPlaceholder="Search clients..."
+        />
+      </Field>
+      <Field label="Catalog piece (design reference)">
+        <PiecePicker
+          value={values.catalogPieceId}
+          onValueChange={(id) => set("catalogPieceId", id)}
+          placeholder="Search catalog piece…"
         />
       </Field>
       <Field label="Event">
@@ -164,6 +183,9 @@ export function ProjectsPage() {
   const { toast } = useToast();
   const [records, setRecords] = useState<ProjectRecord[]>(() => INITIAL_PROJECTS.map(fixtureProjectToRecord));
   const [activity, setActivity] = useState<ProjectActivity[]>([]);
+  const [finance, setFinance] = useState<{ agreedPriceCents: number; invoicedCents: number; paidCents: number } | null>(null);
+  const [linkedCerts, setLinkedCerts] = useState<Array<{ id: string; certificateNumber: string; pieceName: string; status: string }>>([]);
+  const [linkedRepairs, setLinkedRepairs] = useState<Array<{ id: string; ticketNumber: string; pieceDescription: string; status: string }>>([]);
   const [clientList, setClientList] = useState<Array<{ id: string; name: string }>>(() =>
     INITIAL_CLIENTS.map((c) => ({ id: c.id, name: c.name })),
   );
@@ -175,6 +197,12 @@ export function ProjectsPage() {
   const [editor, setEditor] = useState<"new" | "edit" | null>(null);
   const [saving, setSaving] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
+  const [billOpen, setBillOpen] = useState(false);
+  const [billType, setBillType] = useState<"deposit" | "balance">("deposit");
+  const [billAmount, setBillAmount] = useState("");
+  const [billDueDate, setBillDueDate] = useState("");
+  const [billNotes, setBillNotes] = useState("");
+  const [billing, setBilling] = useState(false);
   const projectDrafts = useDraft<ProjectFormValues>("project");
   const outbox = useOutbox();
 
@@ -224,7 +252,7 @@ export function ProjectsPage() {
   const selected = records.find((r) => r.id === projectId) ?? (projectId ? undefined : records[0]);
 
   useEffect(() => {
-    if (!selected) { setActivity([]); return; }
+    if (!selected) { setActivity([]); setFinance(null); return; }
     if (!USE_DATABASE) {
       setActivity([{
         id: `fixture-${selected.id}`,
@@ -237,8 +265,25 @@ export function ProjectsPage() {
     }
     let active = true;
     apiRequest<ProjectDetailResponse>(`/projects/${selected.id}`)
-      .then((res) => { if (active) setActivity(res.data.activity); })
+      .then((res) => {
+        if (active) {
+          setActivity(res.data.activity);
+          if (res.data.finance) setFinance(res.data.finance);
+        }
+      })
       .catch(() => { if (active) setActivity([]); });
+    // Fetch linked certificates
+    apiRequest<{ data: Array<{ id: string; certificateNumber: string; pieceName: string; status: string }> }>(
+      `/certificates?projectId=${selected.id}&limit=20`,
+    )
+      .then((res) => { if (active) setLinkedCerts(res.data); })
+      .catch(() => {});
+    // Fetch linked repairs
+    apiRequest<{ data: Array<{ id: string; ticketNumber: string; pieceDescription: string; status: string }> }>(
+      `/repairs?projectId=${selected.id}&limit=20`,
+    )
+      .then((res) => { if (active) setLinkedRepairs(res.data); })
+      .catch(() => {});
     return () => { active = false; };
   }, [selected?.id]);
 
@@ -254,9 +299,19 @@ export function ProjectsPage() {
             return;
           }
           const targetDate = values.targetDate ? new Date(values.targetDate).toISOString() : undefined;
+          const body: Record<string, unknown> = {
+            clientId: values.clientId,
+            title: values.title,
+            stage: "inquiry",
+          };
+          if (values.projectNumber) body.projectNumber = values.projectNumber;
+          if (targetDate) body.targetDate = targetDate;
+          if (values.brief) body.brief = values.brief;
+          if (values.eventId) body.eventId = values.eventId;
+          if (values.catalogPieceId) body.catalogPieceId = values.catalogPieceId;
           const res = await apiRequest<ProjectMutationResponse>("/projects", {
             method: "POST",
-            body: JSON.stringify({ ...values, targetDate }),
+            body: JSON.stringify(body),
           });
           const created = asDatabaseProject(res.data);
           setRecords((curr) => [...curr, created]);
@@ -289,10 +344,11 @@ export function ProjectsPage() {
           if (!navigator.onLine) {
             await outbox.add("PATCH", `/projects/${selected.id}`, {
               title: values.title,
-              clientId: values.clientId,
+              clientId: values.clientId || undefined,
+              eventId: values.eventId || undefined,
               stage: values.stage,
-              targetDate,
-              brief: values.brief,
+              targetDate: targetDate || undefined,
+              brief: values.brief || undefined,
               expectedUpdatedAt: selected.updatedAt,
             });
             setRecords((curr) => curr.map((record) => record.id === selected.id
@@ -310,9 +366,22 @@ export function ProjectsPage() {
             setEditor(null);
             return;
           }
+          // Only send fields that are valid for updateProjectInput
+          const patchBody: Record<string, unknown> = {
+            title: values.title,
+            clientId: values.clientId || undefined,
+            eventId: values.eventId || undefined,
+            stage: values.stage,
+            targetDate: targetDate || undefined,
+            brief: values.brief || undefined,
+            expectedUpdatedAt: selected.updatedAt,
+          };
+          // Strip undefined keys
+          Object.keys(patchBody).forEach((k) => { if (patchBody[k] === undefined) delete patchBody[k]; });
+
           const res = await apiRequest<ProjectMutationResponse>(`/projects/${selected.id}`, {
             method: "PATCH",
-            body: JSON.stringify({ ...values, targetDate, expectedUpdatedAt: selected.updatedAt }),
+            body: JSON.stringify(patchBody),
           });
           const updated = asDatabaseProject(res.data);
           setRecords((curr) => curr.map((r) => (r.id === updated.id ? updated : r)));
@@ -328,6 +397,63 @@ export function ProjectsPage() {
       setSaving(false);
     }
   }
+
+  async function billProject() {
+    if (!selected || !billAmount || !finance) return;
+    setBilling(true);
+    try {
+      const amountCents = Math.round(parseFloat(billAmount) * 100);
+      const dueDate = billDueDate ? new Date(billDueDate).toISOString() : undefined;
+
+      await apiRequest("/api/invoices", {
+        method: "POST",
+        body: JSON.stringify({
+          clientId: selected.clientId,
+          projectId: selected.id,
+          subtotalCents: amountCents,
+          discountCents: 0,
+          taxCents: 0,
+          totalCents: amountCents,
+          depositPercent: billType === "deposit" ? 100 : undefined,
+          dueDate,
+          notes: billNotes || `${billType === "deposit" ? "Deposit" : "Balance"} invoice for ${selected.title}`,
+        }),
+      });
+
+      setBillOpen(false);
+      setBillAmount("");
+      setBillDueDate("");
+      setBillNotes("");
+      // Refresh to show updated financials
+      if (selected) {
+        apiRequest<ProjectDetailResponse>(`/projects/${selected.id}`)
+          .then((res) => { if (res.data.finance) setFinance(res.data.finance); })
+          .catch(() => {});
+      }
+      toast.success("Invoice created", `${billType === "deposit" ? "Deposit" : "Balance"} invoice billed for ${selected.title}.`);
+    } catch (err) {
+      toast.error("Billing failed", err instanceof Error ? err.message : "Please try again.");
+    } finally {
+      setBilling(false);
+    }
+  }
+
+  const openBillModal = (type: "deposit" | "balance") => {
+    if (!finance || !selected) return;
+    setBillType(type);
+    const quoteTotal = finance.agreedPriceCents / 100;
+    const alreadyInvoiced = finance.invoicedCents / 100;
+    if (type === "deposit") {
+      // Default to 50% of agreed price
+      setBillAmount((quoteTotal * 0.5).toFixed(2));
+    } else {
+      // Balance = agreed total - already invoiced
+      setBillAmount(Math.max(0, quoteTotal - alreadyInvoiced).toFixed(2));
+    }
+    setBillDueDate("");
+    setBillNotes("");
+    setBillOpen(true);
+  };
 
   async function archiveProject() {
     if (!selected) return;
@@ -455,7 +581,17 @@ export function ProjectsPage() {
                     {selected.projectNumber} · {selected.clientName || "—"}{selected.targetDate ? ` · Due ${fmtDate(typeof selected.targetDate === "string" ? selected.targetDate : "")}` : ""}
                   </p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
+                  {USE_DATABASE && finance && finance.agreedPriceCents > 0 && (
+                    <>
+                      <button type="button" onClick={() => openBillModal("deposit")} className="inline-flex min-h-11 items-center gap-2 border border-accent/40 bg-accent text-white px-3 text-[11px] uppercase tracking-wider">
+                        <ReceiptText size={12} /> Bill deposit
+                      </button>
+                      <button type="button" onClick={() => openBillModal("balance")} className="inline-flex min-h-11 items-center gap-2 border border-border px-3 text-[11px] uppercase tracking-wider text-muted-foreground">
+                        <ReceiptText size={12} /> Bill balance
+                      </button>
+                    </>
+                  )}
                   <button type="button" onClick={() => setEditor("edit")} className="inline-flex min-h-11 items-center gap-2 border border-border px-3 text-[11px] uppercase tracking-wider text-muted-foreground"><Edit3 size={12} /> Edit</button>
                   <button type="button" onClick={() => setArchiveOpen(true)} className="inline-flex min-h-11 items-center gap-2 px-3 text-[11px] uppercase tracking-wider text-muted-foreground"><Archive size={12} /> Archive</button>
                 </div>
@@ -471,6 +607,29 @@ export function ProjectsPage() {
                   <Detail label="Brief" value={selected.brief} multiline />
                 </div>
                 <div className="space-y-6 p-5">
+                  {finance && (
+                    <div>
+                      <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Financial Summary</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="border border-border p-2">
+                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Agreed Price</p>
+                          <p className="mt-0.5 font-mono text-[13px] text-foreground">{php(finance.agreedPriceCents / 100)}</p>
+                        </div>
+                        <div className="border border-border p-2">
+                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Invoiced</p>
+                          <p className="mt-0.5 font-mono text-[13px] text-foreground">{php(finance.invoicedCents / 100)}</p>
+                        </div>
+                        <div className="border border-border p-2">
+                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Paid</p>
+                          <p className="mt-0.5 font-mono text-[13px] text-emerald-800">{php(finance.paidCents / 100)}</p>
+                        </div>
+                        <div className="border border-border p-2">
+                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Balance</p>
+                          <p className={`mt-0.5 font-mono text-[13px] ${finance.invoicedCents - finance.paidCents > 0 ? "text-amber-700" : "text-muted-foreground"}`}>{php((finance.invoicedCents - finance.paidCents) / 100)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <div>
                     <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Activity</p>
                     <div className="space-y-3 border-l border-border pl-4">
@@ -483,6 +642,42 @@ export function ProjectsPage() {
                       {!activity.length && <p className="text-[12px] text-muted-foreground">No activity recorded yet.</p>}
                     </div>
                   </div>
+                  {USE_DATABASE && (
+                    <>
+                      {linkedCerts.length > 0 && (
+                        <div>
+                          <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Certificates ({linkedCerts.length})</p>
+                          <div className="space-y-1.5">
+                            {linkedCerts.slice(0, 5).map((c) => (
+                              <div key={c.id} className="border border-border p-2">
+                                <div className="flex items-center justify-between">
+                                  <p className="text-[11px] font-medium">{c.pieceName}</p>
+                                  <span className="text-[10px] px-1.5 py-0.5 uppercase" style={{ color: "var(--ink-muted)", background: "var(--surface)" }}>{c.status}</span>
+                                </div>
+                                <p className="text-[11px] text-muted-foreground mt-0.5">{c.certificateNumber}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {linkedRepairs.length > 0 && (
+                        <div>
+                          <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Repairs ({linkedRepairs.length})</p>
+                          <div className="space-y-1.5">
+                            {linkedRepairs.slice(0, 5).map((r) => (
+                              <div key={r.id} className="border border-border p-2">
+                                <div className="flex items-center justify-between">
+                                  <p className="text-[11px] font-medium truncate">{r.pieceDescription}</p>
+                                  <span className="text-[10px] px-1.5 py-0.5 uppercase" style={{ color: "var(--ink-muted)", background: "var(--surface)" }}>{r.status}</span>
+                                </div>
+                                <p className="text-[11px] text-muted-foreground mt-0.5">{r.ticketNumber}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               </div>
             </>
@@ -496,6 +691,7 @@ export function ProjectsPage() {
           saving={saving}
           clients={clientList}
           events={eventList}
+          isNew={editor === "new"}
           onCancel={() => setEditor(null)}
           onSave={saveProject}
           drafts={projectDrafts.drafts}
@@ -509,6 +705,109 @@ export function ProjectsPage() {
       </Modal>
 
       <ConfirmDialog open={archiveOpen} onClose={() => setArchiveOpen(false)} onConfirm={() => void archiveProject()} title="Archive project" message={`Archive ${selected?.title ?? "this project"}? Its history remains preserved.`} confirmLabel="Archive" danger />
+
+      {/* ── Bill project modal ────────────────────────────────────────── */}
+      {billOpen && (
+        <Modal
+          open={billOpen}
+          onClose={() => setBillOpen(false)}
+          title={billType === "deposit" ? "Bill deposit" : "Bill balance"}
+          subtitle={`Create an invoice for ${selected?.title}`}
+          width={480}
+          footer={
+            <>
+              <button
+                type="button"
+                onClick={() => setBillOpen(false)}
+                className="min-h-9 px-4 text-[12px] text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={billProject}
+                disabled={!billAmount || billing}
+                className="min-h-9 px-4 border border-accent/40 bg-accent text-white text-[12px] disabled:opacity-40 transition-opacity"
+              >
+                {billing ? "Creating…" : `Create ${billType === "deposit" ? "deposit" : "balance"} invoice`}
+              </button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => openBillModal("deposit")}
+                  className={`min-h-10 border text-[12px] ${billType === "deposit" ? "border-foreground bg-foreground text-card" : "border-border text-muted-foreground"}`}
+                >
+                  Deposit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openBillModal("balance")}
+                  className={`min-h-10 border text-[12px] ${billType === "balance" ? "border-foreground bg-foreground text-card" : "border-border text-muted-foreground"}`}
+                >
+                  Balance
+                </button>
+              </div>
+
+              {finance && (
+                <div className="border border-border bg-muted/20 p-3 space-y-1 text-[11px]">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Agreed price</span>
+                    <span className="font-mono">{php(finance.agreedPriceCents / 100)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Already invoiced</span>
+                    <span className="font-mono">{php(finance.invoicedCents / 100)}</span>
+                  </div>
+                  <div className="flex justify-between border-t border-border pt-1">
+                    <span className="font-medium">Remaining</span>
+                    <span className="font-mono font-medium">{php(Math.max(0, finance.agreedPriceCents - finance.invoicedCents) / 100)}</span>
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Amount (₱)</label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  value={billAmount}
+                  onChange={(e) => setBillAmount(e.target.value)}
+                  className="w-full min-h-10 border border-border bg-card px-3 text-[13px] outline-none focus:border-accent/40"
+                />
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  {billType === "deposit" ? "Suggested: 50% of agreed price as deposit." : "Remaining balance after prior invoices."}
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Due date</label>
+                <input
+                  type="date"
+                  value={billDueDate}
+                  onChange={(e) => setBillDueDate(e.target.value)}
+                  className="w-full min-h-10 border border-border bg-card px-3 text-[13px] outline-none focus:border-accent/40"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Notes</label>
+                <textarea
+                  value={billNotes}
+                  onChange={(e) => setBillNotes(e.target.value)}
+                  rows={2}
+                  className="w-full border border-border bg-card px-3 py-2 text-[13px] outline-none focus:border-accent/40 resize-none"
+                  placeholder={billType === "deposit" ? "Deposit invoice for " + (selected?.title || "project") : "Final balance invoice"}
+                />
+              </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

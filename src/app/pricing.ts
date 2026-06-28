@@ -94,7 +94,7 @@ export function pricingWarnings(input: PricingInput, totals: PricingTotals) {
   if (input.lines.some((line) => !line.description.trim())) warnings.push("A cost line is missing a description.");
   if (input.lines.some((line) => line.quantity <= 0)) warnings.push("A cost line has zero quantity.");
   if (input.lines.some((line) => line.unitCostCentavos <= 0)) warnings.push("A cost line is missing its unit cost.");
-  if (totals.grossProfitCentavos < 0) warnings.push("Selling price is below net capital.");
+  if (totals.grossProfitCentavos < 0) warnings.push("Selling price is below total cost.");
   else if (totals.grossProfitCentavos === 0) warnings.push("This price has no gross profit.");
   if (input.sellingPriceOverrideCentavos !== undefined && totals.sellingPriceCentavos !== totals.suggestedPriceCentavos) {
     warnings.push("Selling price manually overrides the calculated suggestion.");

@@ -1,5 +1,5 @@
-import { desc, eq } from "drizzle-orm";
-import { activityEvents, clients, events, projects } from "../../../src/server/db/schema";
+import { and, desc, eq, sql } from "drizzle-orm";
+import { activityEvents, clients, events, invoices, payments, projects, quotes } from "../../../src/server/db/schema";
 import { updateProjectInput } from "../../../src/server/projects/input";
 import { uuidParam } from "../../../src/server/inventory/input";
 import { requireUser } from "../../_shared/auth";
@@ -15,43 +15,60 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     await requireUser(request, serverEnv, db);
     const projectId = uuidParam.parse(params.projectId);
 
-    const [project] = await db
-      .select({
-        id: projects.id,
-        projectNumber: projects.projectNumber,
-        clientId: projects.clientId,
-        clientName: clients.name,
-        eventId: projects.eventId,
-        eventName: events.name,
-        title: projects.title,
-        stage: projects.stage,
-        targetDate: projects.targetDate,
-        brief: projects.brief,
-        createdAt: projects.createdAt,
-        updatedAt: projects.updatedAt,
-      })
+    const [projectRow] = await db
+      .select()
       .from(projects)
       .leftJoin(clients, eq(projects.clientId, clients.id))
       .leftJoin(events, eq(projects.eventId, events.id))
       .where(eq(projects.id, projectId))
       .limit(1);
 
-    if (!project) throw new HttpError(404, "Project not found.", "not_found");
+    if (!projectRow) throw new HttpError(404, "Project not found.", "not_found");
+
+    const project = {
+      id: projectRow.projects.id,
+      projectNumber: projectRow.projects.projectNumber,
+      clientId: projectRow.projects.clientId,
+      clientName: projectRow.clients?.name ?? null,
+      eventId: projectRow.projects.eventId,
+      eventName: projectRow.events?.name ?? null,
+      title: projectRow.projects.title,
+      stage: projectRow.projects.stage,
+      targetDate: projectRow.projects.targetDate,
+      brief: projectRow.projects.brief,
+      createdAt: projectRow.projects.createdAt,
+      updatedAt: projectRow.projects.updatedAt,
+    };
 
     const activity = await db
-      .select({
-        id: activityEvents.id,
-        action: activityEvents.action,
-        summary: activityEvents.summary,
-        createdAt: activityEvents.createdAt,
-        actorName: activityEvents.actorId,
-      })
+      .select()
       .from(activityEvents)
       .where(eq(activityEvents.entityId, projectId))
       .orderBy(desc(activityEvents.createdAt))
       .limit(20);
 
-    return json({ data: { project, activity }, requestId });
+    // Derived financials: agreed price from accepted quote + balance from invoices
+    const [acceptedQuote] = await db
+      .select()
+      .from(quotes)
+      .where(and(eq(quotes.projectId, projectId), eq(quotes.status, "accepted")))
+      .limit(1);
+
+    const invoiceSums = await db
+      .select({
+        invoiced: sql<number>`coalesce(sum(${invoices.totalCents}), 0)::int`,
+        paid: sql<number>`coalesce(sum(${invoices.paidCents}), 0)::int`,
+      })
+      .from(invoices)
+      .where(eq(invoices.projectId, projectId));
+
+    const finance = {
+      agreedPriceCents: Number(acceptedQuote?.totalCents ?? 0),
+      invoicedCents: invoiceSums[0]?.invoiced ?? 0,
+      paidCents: invoiceSums[0]?.paid ?? 0,
+    };
+
+    return json({ data: { project, activity, finance }, requestId });
   } catch (error) {
     return errorResponse(error, requestId);
   }
@@ -89,32 +106,34 @@ export const onRequestPatch: PagesFunction<Env> = async ({ request, env, params 
         entityType: "project",
         entityId: projectId,
         summary: `Updated project "${existing.title}"`,
-        before: existing,
-        after: updates,
+        before: JSON.parse(JSON.stringify(existing)) as Record<string, unknown>,
+        after: JSON.parse(JSON.stringify(updates)) as Record<string, unknown>,
         requestId,
       }),
     ]);
 
-    const [result] = await db
-      .select({
-        id: projects.id,
-        projectNumber: projects.projectNumber,
-        clientId: projects.clientId,
-        clientName: clients.name,
-        eventId: projects.eventId,
-        eventName: events.name,
-        title: projects.title,
-        stage: projects.stage,
-        targetDate: projects.targetDate,
-        brief: projects.brief,
-        createdAt: projects.createdAt,
-        updatedAt: projects.updatedAt,
-      })
+    const [row] = await db
+      .select()
       .from(projects)
       .leftJoin(clients, eq(projects.clientId, clients.id))
       .leftJoin(events, eq(projects.eventId, events.id))
       .where(eq(projects.id, projectId))
       .limit(1);
+
+    const result = {
+      id: row.projects.id,
+      projectNumber: row.projects.projectNumber,
+      clientId: row.projects.clientId,
+      clientName: row.clients?.name ?? null,
+      eventId: row.projects.eventId,
+      eventName: row.events?.name ?? null,
+      title: row.projects.title,
+      stage: row.projects.stage,
+      targetDate: row.projects.targetDate,
+      brief: row.projects.brief,
+      createdAt: row.projects.createdAt,
+      updatedAt: row.projects.updatedAt,
+    };
 
     return json({ data: result, requestId });
   } catch (error) {

@@ -1,12 +1,14 @@
 import { asc, eq, inArray, sql } from "drizzle-orm";
 import {
   catalogPieces,
+  clients,
   eventBudgetLines,
   eventInventoryAllocations,
   events,
   eventTasks,
   inventoryLots,
   locations,
+  projects,
   stockMovements,
 } from "../../../src/server/db/schema";
 import { uuidParam } from "../../../src/server/inventory/input";
@@ -28,7 +30,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     const [event] = await db.select().from(events).where(eq(events.id, eventId)).limit(1);
     if (!event) throw new HttpError(404, "Event not found.", "event_not_found");
 
-    const [tasks, budgetLines, allocations, lots] = await Promise.all([
+    const [tasks, budgetLines, allocationsRaw, lotsRaw, linkedProjectsRaw] = await Promise.all([
       db.select().from(eventTasks).where(eq(eventTasks.eventId, eventId)).orderBy(asc(eventTasks.sortOrder)),
       db
         .select()
@@ -36,39 +38,61 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
         .where(eq(eventBudgetLines.eventId, eventId))
         .orderBy(asc(eventBudgetLines.createdAt)),
       db
-        .select({
-          id: eventInventoryAllocations.id,
-          inventoryLotId: eventInventoryAllocations.inventoryLotId,
-          lotCode: inventoryLots.code,
-          description: inventoryLots.description,
-          unit: inventoryLots.unit,
-          sourceLocationId: eventInventoryAllocations.sourceLocationId,
-          sourceLocationName: locations.name,
-          plannedQuantity: eventInventoryAllocations.plannedQuantity,
-          openingQuantity: eventInventoryAllocations.openingQuantity,
-          closingQuantity: eventInventoryAllocations.closingQuantity,
-          status: eventInventoryAllocations.status,
-          notes: eventInventoryAllocations.notes,
-        })
+        .select()
         .from(eventInventoryAllocations)
         .innerJoin(inventoryLots, eq(eventInventoryAllocations.inventoryLotId, inventoryLots.id))
         .innerJoin(locations, eq(eventInventoryAllocations.sourceLocationId, locations.id))
         .where(eq(eventInventoryAllocations.eventId, eventId))
         .orderBy(asc(inventoryLots.description)),
       db
-        .select({
-          id: inventoryLots.id,
-          code: inventoryLots.code,
-          description: inventoryLots.description,
-          unit: inventoryLots.unit,
-          retailPriceCents: catalogPieces.retailPriceCents,
-          costCents: inventoryLots.unitCostCents,
-        })
+        .select()
         .from(inventoryLots)
         .leftJoin(catalogPieces, eq(inventoryLots.catalogPieceId, catalogPieces.id))
         .where(eq(inventoryLots.kind, "finished_piece"))
         .orderBy(asc(inventoryLots.description)),
+
+      // Linked projects (commissions originated at this event)
+      db
+        .select()
+        .from(projects)
+        .innerJoin(clients, eq(projects.clientId, clients.id))
+        .where(eq(projects.eventId, eventId))
+        .orderBy(asc(projects.createdAt)),
     ]);
+
+    // Flatten joined rows (workaround for drizzle-orm orderSelectedFields bug)
+    const allocations = allocationsRaw.map((r) => ({
+      id: r.event_inventory_allocations.id,
+      inventoryLotId: r.event_inventory_allocations.inventoryLotId,
+      lotCode: r.inventory_lots.code,
+      description: r.inventory_lots.description,
+      unit: r.inventory_lots.unit,
+      sourceLocationId: r.event_inventory_allocations.sourceLocationId,
+      sourceLocationName: r.locations.name,
+      plannedQuantity: r.event_inventory_allocations.plannedQuantity,
+      openingQuantity: r.event_inventory_allocations.openingQuantity,
+      closingQuantity: r.event_inventory_allocations.closingQuantity,
+      status: r.event_inventory_allocations.status,
+      notes: r.event_inventory_allocations.notes,
+    }));
+
+    const lots = lotsRaw.map((r) => ({
+      id: r.inventory_lots.id,
+      code: r.inventory_lots.code,
+      description: r.inventory_lots.description,
+      unit: r.inventory_lots.unit,
+      retailPriceCents: r.catalog_pieces?.retailPriceCents ?? null,
+      costCents: r.inventory_lots.unitCostCents,
+    }));
+
+    const linkedProjects = linkedProjectsRaw.map((r) => ({
+      id: r.projects.id,
+      projectNumber: r.projects.projectNumber,
+      title: r.projects.title,
+      stage: r.projects.stage,
+      clientName: r.clients.displayName,
+      targetDate: r.projects.targetDate,
+    }));
 
     const balances = new Map<string, number>();
     if (lots.length) {
@@ -96,7 +120,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
       .map((lot) => ({ ...lot, availableQuantity: String(Math.max(0, balances.get(lot.id) ?? 0)) }))
       .filter((lot) => Number(lot.availableQuantity) > 0);
 
-    return json({ data: { event, tasks, budgetLines, allocations, stockSuggestions }, requestId });
+    return json({ data: { event, tasks, budgetLines, allocations, stockSuggestions, linkedProjects }, requestId });
   } catch (error) {
     return errorResponse(error, requestId);
   }

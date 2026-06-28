@@ -6,6 +6,7 @@ import {
   certificates,
   certificateRevisions,
   clients,
+  projects,
 } from "../../../src/server/db/schema";
 import {
   updateCertificateInput,
@@ -47,6 +48,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
         pieceSku: catalogPieces.sku,
         clientId: certificates.clientId,
         clientName: clients.name,
+        projectId: certificates.projectId,
+        projectName: sql<string | null>`${projects.title}`.as("project_name"),
         createdBy: certificates.createdBy,
         createdAt: certificates.createdAt,
         updatedAt: certificates.updatedAt,
@@ -60,33 +63,37 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
       return json({ error: { code: "not_found", message: "Certificate not found" }, requestId }, { status: 404 });
     }
 
-    const revisions = await db
-      .select({
-        id: certificateRevisions.id,
-        version: certificateRevisions.version,
-        reason: certificateRevisions.reason,
-        createdBy: certificateRevisions.createdBy,
-        displayName: appUsers.displayName,
-        createdAt: certificateRevisions.createdAt,
-      })
+    const revisionRows = await db
+      .select()
       .from(certificateRevisions)
       .leftJoin(appUsers, eq(certificateRevisions.createdBy, appUsers.id))
       .where(eq(certificateRevisions.certificateId, certId))
       .orderBy(sql`${certificateRevisions.version} desc`);
 
-    const activities = await db
-      .select({
-        id: activityEvents.id,
-        action: activityEvents.action,
-        summary: activityEvents.summary,
-        displayName: appUsers.displayName,
-        createdAt: activityEvents.createdAt,
-      })
+    const revisions = revisionRows.map(r => ({
+      id: r.certificate_revisions.id,
+      version: r.certificate_revisions.version,
+      reason: r.certificate_revisions.reason,
+      createdBy: r.certificate_revisions.createdBy,
+      displayName: r.app_users?.displayName ?? null,
+      createdAt: r.certificate_revisions.createdAt,
+    }));
+
+    const activityRows = await db
+      .select()
       .from(activityEvents)
       .leftJoin(appUsers, eq(activityEvents.actorId, appUsers.id))
       .where(sql`${activityEvents.entityType} = 'certificate' and ${activityEvents.entityId} = ${certId}`)
       .orderBy(sql`${activityEvents.createdAt} desc`)
       .limit(50);
+
+    const activities = activityRows.map(r => ({
+      id: r.activity_events.id,
+      action: r.activity_events.action,
+      summary: r.activity_events.summary,
+      displayName: r.app_users?.displayName ?? null,
+      createdAt: r.activity_events.createdAt,
+    }));
 
     return json({ data: { ...cert, revisions, activities }, requestId });
   } catch (error) {

@@ -69,7 +69,7 @@ export const updateCatalogPieceInput = z.object({
 const inventoryKindEnum = z.enum(["material", "finished_piece", "packaging", "supply"]);
 
 export const createInventoryLotInput = z.object({
-  code: z.string().trim().min(1, "Lot code is required").max(40),
+  code: z.string().trim().min(1, "Batch code is required").max(40),
   kind: inventoryKindEnum,
   catalogPieceId: z.string().uuid().optional(),
   description: z.string().trim().min(1, "Description is required").max(500),
@@ -102,6 +102,7 @@ export const createStockMovementInput = z.object({
   fromLocationId: z.string().uuid().optional(),
   toLocationId: z.string().uuid().optional(),
   projectId: z.string().uuid().optional(),
+  eventId: z.string().uuid().optional(),
   reason: z.string().trim().min(1, "Reason is required").max(500),
 }).refine(
   (input) => input.fromLocationId || input.toLocationId,
@@ -113,6 +114,7 @@ export const createStockMovementInput = z.object({
 export const listQuery = z.object({
   q: z.string().trim().max(160).default(""),
   kind: inventoryKindEnum.optional(),
+  category: z.string().trim().max(80).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });

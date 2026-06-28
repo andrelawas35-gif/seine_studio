@@ -1,4 +1,7 @@
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Accounting Types ──────────────────────────────────────────────────────────
+// Extracted from the former accountingData.ts mock layer (Wave 5 cleanup).
+// These types describe the legacy fixture-mode shapes; API-mode code uses
+// server-derived types instead.
 
 export type InvoiceStatus = "Draft" | "Sent" | "Paid" | "Overdue" | "Cancelled";
 export type QuoteStatus   = "Draft" | "Sent" | "Accepted" | "Declined" | "Expired";
@@ -37,9 +40,3 @@ export interface Expense {
   supplier: string;
   notes: string;
 }
-
-// ─── Initial Accounting Data ──────────────────────────────────────────────────
-
-export const INITIAL_INVOICES: Invoice[] = [];
-export const INITIAL_QUOTES: Quote[] = [];
-export const INITIAL_EXPENSES: Expense[] = [];

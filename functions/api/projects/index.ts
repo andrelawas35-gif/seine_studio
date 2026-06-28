@@ -26,20 +26,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const where = and(isNull(projects.archivedAt), search, stageFilter);
 
     const [records, [{ count }]] = await db.batch([
-      db.select({
-        id: projects.id,
-        projectNumber: projects.projectNumber,
-        clientId: projects.clientId,
-        clientName: clients.name,
-        eventId: projects.eventId,
-        eventName: events.name,
-        title: projects.title,
-        stage: projects.stage,
-        targetDate: projects.targetDate,
-        brief: projects.brief,
-        createdAt: projects.createdAt,
-        updatedAt: projects.updatedAt,
-      })
+      db.select()
         .from(projects)
         .leftJoin(clients, eq(projects.clientId, clients.id))
         .leftJoin(events, eq(projects.eventId, events.id))
@@ -50,7 +37,22 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
       db.select({ count: sql<number>`count(*)::int` }).from(projects).where(where),
     ]);
 
-    return json({ data: records, pagination: { ...query, total: count }, requestId });
+    const data = records.map((r) => ({
+      id: r.projects.id,
+      projectNumber: r.projects.projectNumber,
+      clientId: r.projects.clientId,
+      clientName: r.clients?.name ?? null,
+      eventId: r.projects.eventId,
+      eventName: r.events?.name ?? null,
+      title: r.projects.title,
+      stage: r.projects.stage,
+      targetDate: r.projects.targetDate,
+      brief: r.projects.brief,
+      createdAt: r.projects.createdAt,
+      updatedAt: r.projects.updatedAt,
+    }));
+
+    return json({ data, pagination: { ...query, total: count }, requestId });
   } catch (error) {
     return errorResponse(error, requestId);
   }
@@ -65,11 +67,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     const input = createProjectInput.parse(await readJson(request));
 
     const projectId = crypto.randomUUID();
+    // Auto-generate project number if not provided (D11)
+    const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(projects);
+    const projectNumber = input.projectNumber || `PRJ-${String(count + 1).padStart(4, "0")}`;
+
     const values: Record<string, unknown> = {
       id: projectId,
-      projectNumber: input.projectNumber,
+      projectNumber,
       clientId: input.clientId,
       eventId: input.eventId || undefined,
+      catalogPieceId: input.catalogPieceId || undefined,
       title: input.title,
       stage: input.stage,
     };
@@ -90,26 +97,28 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
     ]);
 
     // Fetch with client and event joined
-    const [result] = await db
-      .select({
-        id: projects.id,
-        projectNumber: projects.projectNumber,
-        clientId: projects.clientId,
-        clientName: clients.name,
-        eventId: projects.eventId,
-        eventName: events.name,
-        title: projects.title,
-        stage: projects.stage,
-        targetDate: projects.targetDate,
-        brief: projects.brief,
-        createdAt: projects.createdAt,
-        updatedAt: projects.updatedAt,
-      })
+    const [row] = await db
+      .select()
       .from(projects)
       .leftJoin(clients, eq(projects.clientId, clients.id))
       .leftJoin(events, eq(projects.eventId, events.id))
       .where(eq(projects.id, projectId))
       .limit(1);
+
+    const result = {
+      id: row.projects.id,
+      projectNumber: row.projects.projectNumber,
+      clientId: row.projects.clientId,
+      clientName: row.clients?.name ?? null,
+      eventId: row.projects.eventId,
+      eventName: row.events?.name ?? null,
+      title: row.projects.title,
+      stage: row.projects.stage,
+      targetDate: row.projects.targetDate,
+      brief: row.projects.brief,
+      createdAt: row.projects.createdAt,
+      updatedAt: row.projects.updatedAt,
+    };
 
     return json({ data: result, requestId }, { status: 201 });
   } catch (error) {

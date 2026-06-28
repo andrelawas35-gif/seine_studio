@@ -17,6 +17,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const search = url.searchParams.get("q") || "";
     const status = url.searchParams.get("status");
     const overdue = url.searchParams.get("overdue") === "true";
+    // Invoices now link directly to events via invoices.event_id (Wave 0 M0.4).
+    // Filter by eventId uses the direct column, not the through-project join.
+    const eventId = url.searchParams.get("eventId");
     const limit = Math.min(Number(url.searchParams.get("limit")) || 50, 100);
     const offset = Math.max(Number(url.searchParams.get("offset")) || 0, 0);
 
@@ -26,30 +29,37 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     if (overdue) {
       conditions.push(and(eq(invoices.status, "sent" as never), sql`${invoices.dueDate} < now()`));
     }
+    if (eventId) conditions.push(eq(invoices.eventId, eventId));
     const where = and(...conditions);
 
-    const [records, [{ count }]] = await db.batch([
+    const [rows, [{ count }]] = await db.batch([
       db
-        .select({
-          id: invoices.id,
-          invoiceNumber: invoices.invoiceNumber,
-          clientId: invoices.clientId,
-          clientName: clients.name,
-          projectId: invoices.projectId,
-          status: invoices.status,
-          totalCents: invoices.totalCents,
-          paidCents: invoices.paidCents,
-          dueDate: invoices.dueDate,
-          issuedAt: invoices.issuedAt,
-        })
+        .select()
         .from(invoices)
         .leftJoin(clients, eq(invoices.clientId, clients.id))
         .where(where)
         .orderBy(desc(invoices.issuedAt))
         .limit(limit)
         .offset(offset),
-      db.select({ count: sql<number>`count(*)::int` }).from(invoices).where(where),
+      db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(invoices)
+        .where(where),
     ]);
+
+    const records = rows.map((r) => ({
+      id: r.invoices.id,
+      invoiceNumber: r.invoices.invoiceNumber,
+      clientId: r.invoices.clientId,
+      clientName: r.clients?.name ?? null,
+      projectId: r.invoices.projectId,
+      eventId: r.invoices.eventId,
+      status: r.invoices.status,
+      totalCents: r.invoices.totalCents,
+      paidCents: r.invoices.paidCents,
+      dueDate: r.invoices.dueDate,
+      issuedAt: r.invoices.issuedAt,
+    }));
 
     return json({ data: records, pagination: { limit, offset, total: count }, requestId });
   } catch (error) {
@@ -80,6 +90,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
           clientId: input.clientId,
           projectId: input.projectId,
           quoteId: input.quoteId,
+          eventId: input.eventId,
           currency: input.currency,
           subtotalCents: input.subtotalCents,
           discountCents: input.discountCents,

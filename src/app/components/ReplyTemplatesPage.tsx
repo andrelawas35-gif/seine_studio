@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, Copy, FilePlus2, History, Search, TriangleAlert } from "lucide-react";
-import type { Client, InventoryItem, Project } from "../data";
 import { php } from "../data";
+import { useReferenceData } from "./useReferenceData";
 import {
   APPROVED_VARIABLES,
   DEFAULT_REPLY_TEMPLATES,
@@ -13,6 +13,7 @@ import {
   type ReplyVariables,
 } from "../replyTemplates";
 import { apiRequest } from "../api";
+import { Combobox } from "./ui/combobox";
 
 const STORAGE_KEY = "seine.reply-templates.v1";
 const CATEGORIES: Array<"All" | ReplyCategory> = [
@@ -31,13 +32,8 @@ function newId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-interface Props {
-  clients: Client[];
-  projects: Project[];
-  inventory: InventoryItem[];
-}
-
-export function ReplyTemplatesPage({ clients, projects, inventory }: Props) {
+export function ReplyTemplatesPage() {
+  const { clients, projects, inventory } = useReferenceData();
   const [customTemplates, setCustomTemplates] = useState<ReplyTemplate[]>(readCustomTemplates);
   const templates = useMemo(() => [...DEFAULT_REPLY_TEMPLATES, ...customTemplates], [customTemplates]);
   const [selectedId, setSelectedId] = useState(DEFAULT_REPLY_TEMPLATES[0].id);
@@ -173,9 +169,14 @@ export function ReplyTemplatesPage({ clients, projects, inventory }: Props) {
               <Search className="absolute left-3 top-3 text-muted-foreground" size={13} />
               <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search replies" className="min-h-10 w-full border border-border bg-background pl-9 pr-3 text-[11px] outline-none focus:border-[#B8975A]" />
             </label>
-            <select value={category} onChange={(event) => setCategory(event.target.value as typeof category)} className="min-h-10 w-full border border-border bg-background px-3 text-[11px]">
-              {CATEGORIES.map((item) => <option key={item}>{item}</option>)}
-            </select>
+            <Combobox
+              options={CATEGORIES.map((item) => ({ value: item, label: item }))}
+              value={category}
+              onValueChange={(v) => setCategory(v as typeof category)}
+              placeholder="Filter category…"
+              searchPlaceholder="Search category…"
+              aria-label="Filter by category"
+            />
           </div>
           <div className="max-h-[28rem] overflow-auto p-2">
             {filtered.map((template) => (
@@ -195,8 +196,8 @@ export function ReplyTemplatesPage({ clients, projects, inventory }: Props) {
               <span className="text-[11px] text-muted-foreground">{APPROVED_VARIABLES.length} approved fields</span>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Project"><select value={projectId} onChange={(event) => setProjectId(event.target.value)} className="field"><option value="">Select a project</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.id} · {project.name}</option>)}</select></Field>
-              <Field label="Client"><select value={clientId} onChange={(event) => setClientId(event.target.value)} className="field"><option value="">Select a client</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name} · {client.location}</option>)}</select></Field>
+              <Field label="Project"><Combobox options={[{ value: "", label: "Select a project" }, ...projects.map((p) => ({ value: p.id, label: `${p.id} · ${p.name}` }))]} value={projectId} onValueChange={setProjectId} placeholder="Select project…" searchPlaceholder="Search project…" aria-label="Project" /></Field>
+              <Field label="Client"><Combobox options={[{ value: "", label: "Select a client" }, ...clients.map((c) => ({ value: c.id, label: `${c.name} · ${c.location}` }))]} value={clientId} onValueChange={setClientId} placeholder="Select client…" searchPlaceholder="Search client…" aria-label="Client" /></Field>
               <Field label="Piece type"><input value={pieceType} onChange={(event) => setPieceType(event.target.value)} placeholder={selectedProject?.name || "e.g. custom ring"} className="field" /></Field>
               <Field label="Starting price"><input inputMode="decimal" value={startingPrice} onChange={(event) => setStartingPrice(event.target.value)} placeholder={selectedProject?.price ? php(selectedProject.price) : "e.g. PHP 12,000"} className="field" /></Field>
               <Field label="Material"><input list="reply-materials" value={material} onChange={(event) => setMaterial(event.target.value)} placeholder="Type or select material" className="field" /><datalist id="reply-materials">{inventory.map((item) => <option key={item.id} value={item.name} />)}</datalist></Field>

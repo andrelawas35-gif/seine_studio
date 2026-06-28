@@ -204,6 +204,7 @@ export const catalogPieces = pgTable(
     stoneSummary: text("stone_summary"),
     retailPriceCents: bigint("retail_price_cents", { mode: "number" }),
     costCents: bigint("cost_cents", { mode: "number" }),
+    imageUrl: text("image_url"),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     ...timestamps,
   },
@@ -240,6 +241,7 @@ export const projects = pgTable(
     clientId: uuid("client_id")
       .notNull()
       .references(() => clients.id),
+    catalogPieceId: uuid("catalog_piece_id").references(() => catalogPieces.id, { onDelete: "set null" }),
     eventId: uuid("event_id").references(() => events.id, { onDelete: "set null" }),
     title: text("title").notNull(),
     stage: projectStage("stage").notNull().default("inquiry"),
@@ -251,6 +253,7 @@ export const projects = pgTable(
   (table) => [
     uniqueIndex("projects_number_unique").on(table.projectNumber),
     index("projects_client_idx").on(table.clientId),
+    index("projects_catalog_piece_idx").on(table.catalogPieceId),
     index("projects_event_idx").on(table.eventId),
   ],
 );
@@ -371,6 +374,7 @@ export const stockMovements = pgTable(
   },
   (table) => [
     index("stock_movements_lot_time_idx").on(table.inventoryLotId, table.occurredAt),
+    index("stock_movements_event_idx").on(table.eventId),
     check("stock_movements_quantity_positive", sql`${table.quantity} > 0`),
     check(
       "stock_movements_location_present",
@@ -528,6 +532,7 @@ export const invoices = pgTable(
       .notNull()
       .references(() => clients.id),
     projectId: uuid("project_id").references(() => projects.id),
+    eventId: uuid("event_id").references(() => events.id, { onDelete: "set null" }),
     quoteId: uuid("quote_id").references(() => quotes.id),
     status: invoiceStatus("status").notNull().default("draft"),
     currency: text("currency").notNull().default("PHP"),
@@ -553,6 +558,7 @@ export const invoices = pgTable(
   (table) => [
     uniqueIndex("invoices_number_unique").on(table.invoiceNumber),
     index("invoices_client_idx").on(table.clientId),
+    index("invoices_event_idx").on(table.eventId),
     index("invoices_status_idx").on(table.status),
     check("invoices_total_nonnegative", sql`${table.totalCents} >= 0`),
     check("invoices_paid_nonnegative", sql`${table.paidCents} >= 0`),
@@ -628,6 +634,7 @@ export const expenses = pgTable(
   (table) => [
     index("expenses_supplier_idx").on(table.supplierId),
     index("expenses_project_idx").on(table.projectId),
+    index("expenses_event_idx").on(table.eventId),
     index("expenses_category_idx").on(table.category),
     check("expenses_amount_positive", sql`${table.amountCents} > 0`),
   ],
@@ -641,6 +648,7 @@ export const certificates = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     certificateNumber: text("certificate_number").notNull(),
     catalogPieceId: uuid("catalog_piece_id").references(() => catalogPieces.id, { onDelete: "set null" }),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
     clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
     status: certificateStatus("status").notNull().default("draft"),
     pieceName: text("piece_name").notNull(),
@@ -664,6 +672,7 @@ export const certificates = pgTable(
     uniqueIndex("certificates_number_unique").on(table.certificateNumber),
     uniqueIndex("certificates_verification_unique").on(table.verificationCode),
     index("certificates_piece_idx").on(table.catalogPieceId),
+    index("certificates_project_idx").on(table.projectId),
     index("certificates_client_idx").on(table.clientId),
   ],
 );
@@ -698,6 +707,7 @@ export const repairTickets = pgTable(
       .notNull()
       .references(() => clients.id),
     catalogPieceId: uuid("catalog_piece_id").references(() => catalogPieces.id, { onDelete: "set null" }),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
     pieceDescription: text("piece_description").notNull(),
     identifyingMarks: text("identifying_marks"),
     photosUrls: jsonb("photos_urls").$type<string[]>().notNull().default([]),
@@ -720,6 +730,7 @@ export const repairTickets = pgTable(
     uniqueIndex("repair_tickets_number_unique").on(table.ticketNumber),
     index("repair_tickets_status_idx").on(table.status),
     index("repair_tickets_client_idx").on(table.clientId),
+    index("repair_tickets_project_idx").on(table.projectId),
     check(
       "repair_tickets_estimate_nonnegative",
       sql`${table.estimateCents} is null or ${table.estimateCents} >= 0`,

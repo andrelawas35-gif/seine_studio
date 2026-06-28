@@ -9,10 +9,14 @@ import {
   Printer,
   Copy,
   Loader2,
+  FileText,
 } from "lucide-react";
 import { apiRequest, ApiError } from "../api";
 import { php } from "../data";
 import { Combobox } from "./ui/combobox";
+import { MasterDetail } from "./ui/master-detail";
+import { DocumentCanvas, type DocumentMeta } from "./DocumentCanvas";
+import { Modal } from "./Modal";
 import type { ClientRecord } from "../clients";
 
 const STATUS_OPTIONS = [
@@ -44,6 +48,8 @@ interface CertificateRecord {
   pieceName: string;
   clientId: string | null;
   clientName: string | null;
+  projectId: string | null;
+  projectName: string | null;
   status: string;
   metalType: string | null;
   karat: string | null;
@@ -129,70 +135,60 @@ export function CertificatesPage() {
   const StatusIcon = detail ? STATUS_ICONS[detail.status] : FileCheck;
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4 pb-2">
-        <div>
-          <p className="text-eyebrow tracking-widest uppercase" style={{ color: "var(--accent)" }}>
-            Certificates of Authenticity
-          </p>
-          <h2 className="font-serif text-body-lg mt-0.5">Certificates</h2>
+    <>
+      <MasterDetail
+      hasSelection={!!selectedId}
+      loading={loading}
+      error={error}
+      isEmpty={!loading && !error && records.length === 0}
+      emptyState={
+        <div className="p-6 text-center text-[13px]" style={{ color: "var(--ink-muted)" }}>
+          No certificates found.
         </div>
-        <button
-          type="button"
-          onClick={() => setShowCreate(true)}
-          className="inline-flex items-center gap-1.5 min-h-9 px-3 border border-border bg-card text-[12px] hover:border-accent/40 transition-colors"
-        >
-          <Plus size={13} />
-          New Certificate
-        </button>
-      </div>
-
-      {/* Search & Filter */}
-      <div className="flex flex-wrap items-center gap-2 px-4 pb-3">
-        <div className="relative flex-1 min-w-[180px] max-w-[320px]">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: "var(--ink-muted)" }} />
-          <input
-            type="search"
-            placeholder="Search certificates…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full h-9 pl-8 pr-3 text-[13px] border border-border bg-transparent"
-            style={{ color: "var(--foreground)" }}
+      }
+      header={
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4 pb-2">
+          <div>
+            <p className="text-eyebrow tracking-widest uppercase" style={{ color: "var(--accent)" }}>
+              Certificates of Authenticity
+            </p>
+            <h2 className="font-serif text-body-lg mt-0.5">Certificates</h2>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowCreate(true)}
+            className="inline-flex items-center gap-1.5 min-h-9 px-3 border border-border bg-card text-[12px] hover:border-accent/40 transition-colors"
+          >
+            <Plus size={13} />
+            New Certificate
+          </button>
+        </div>
+      }
+      toolbar={
+        <>
+          <div className="relative flex-1 min-w-[180px] max-w-[320px]">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: "var(--ink-muted)" }} />
+            <input
+              type="search"
+              placeholder="Search certificates…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full h-9 pl-8 pr-3 text-[13px] border border-border bg-transparent"
+              style={{ color: "var(--foreground)" }}
+            />
+          </div>
+          <Combobox
+            options={[...STATUS_OPTIONS]}
+            value={statusFilter}
+            onValueChange={setStatusFilter}
+            placeholder="Filter status…"
+            searchPlaceholder="Search status…"
+            aria-label="Filter by status"
           />
-        </div>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="h-9 px-2.5 text-[13px] border border-border bg-transparent"
-          style={{ color: "var(--foreground)" }}
-        >
-          {STATUS_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="flex flex-1 overflow-hidden border-t border-border">
-        {/* List */}
-        <div className="w-full md:w-80 lg:w-96 flex-shrink-0 overflow-y-auto border-r border-border">
-          {loading && (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 size={18} className="animate-spin" style={{ color: "var(--ink-muted)" }} />
-            </div>
-          )}
-          {error && (
-            <div className="p-4 text-[13px]" style={{ color: "var(--danger)" }}>
-              {error}
-            </div>
-          )}
-          {!loading && !error && records.length === 0 && (
-            <div className="p-6 text-center text-[13px]" style={{ color: "var(--ink-muted)" }}>
-              No certificates found.
-            </div>
-          )}
+        </>
+      }
+      sidebar={
+        <>
           {records.map((cert) => {
             const Icon = STATUS_ICONS[cert.status] || FileCheck;
             return (
@@ -210,6 +206,7 @@ export function CertificatesPage() {
                     <p className="text-[11px] mt-0.5" style={{ color: "var(--ink-muted)" }}>
                       {cert.certificateNumber}
                       {cert.clientName ? ` · ${cert.clientName}` : ""}
+                      {cert.projectName ? ` · ${cert.projectName}` : ""}
                     </p>
                     <div className="flex items-center gap-2 mt-1">
                       <span
@@ -224,231 +221,309 @@ export function CertificatesPage() {
               </button>
             );
           })}
-        </div>
+        </>
+      }
+      detail={
+        detailLoading ? (
+          <div className="flex-1 flex items-center justify-center">
+            <Loader2 size={18} className="animate-spin" style={{ color: "var(--ink-muted)" }} />
+          </div>
+        ) : detail ? (
+          <div className="flex-1 p-6 max-w-3xl">
+            {/* Status bar */}
+            <div className="flex items-center gap-3 mb-6">
+              <StatusIcon size={20} style={{ color: STATUS_COLORS[detail.status] }} />
+              <div>
+                <p className="font-serif text-body-lg">{detail.pieceName}</p>
+                <p className="text-eyebrow tracking-widest uppercase" style={{ color: "var(--ink-muted)" }}>
+                  {detail.certificateNumber}
+                  {detail.status === "issued" || detail.status === "reissued"
+                    ? ` · Verification: ${detail.verificationCode}`
+                    : ""}
+                </p>
+              </div>
+            </div>
 
-        {/* Detail */}
-        <div className="hidden md:flex flex-1 overflow-y-auto">
-          {!selectedId && (
-            <div className="flex-1 flex items-center justify-center text-[13px]" style={{ color: "var(--ink-muted)" }}>
-              Select a certificate to view details
+            {/* Certificate fields */}
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <DetailField label="Status" value={detail.status} />
+              <DetailField label="Client" value={detail.clientName || "—"} />
+              <DetailField label="Project" value={detail.projectName || "—"} />
+              <DetailField label="Piece SKU" value={detail.pieceSku || "—"} />
+              <DetailField label="Metal" value={[detail.metalType, detail.karat].filter(Boolean).join(" ") || "—"} />
+              <DetailField label="Weight" value={detail.weightGrams ? `${detail.weightGrams}g` : "—"} />
+              <DetailField label="Dimensions" value={detail.dimensions || "—"} />
+              {detail.completionDate && (
+                <DetailField label="Completion" value={new Date(detail.completionDate).toLocaleDateString("en-PH")} />
+              )}
             </div>
-          )}
-          {selectedId && detailLoading && (
-            <div className="flex-1 flex items-center justify-center">
-              <Loader2 size={18} className="animate-spin" style={{ color: "var(--ink-muted)" }} />
-            </div>
-          )}
-          {selectedId && detail && (
-            <div className="flex-1 p-6 max-w-3xl">
-              {/* Status bar */}
-              <div className="flex items-center gap-3 mb-6">
-                <StatusIcon size={20} style={{ color: STATUS_COLORS[detail.status] }} />
-                <div>
-                  <p className="font-serif text-body-lg">{detail.pieceName}</p>
-                  <p className="text-eyebrow tracking-widest uppercase" style={{ color: "var(--ink-muted)" }}>
-                    {detail.certificateNumber}
-                    {detail.status === "issued" || detail.status === "reissued"
-                      ? ` · Verification: ${detail.verificationCode}`
-                      : ""}
-                  </p>
+
+            {detail.stoneSpecifications && (
+              <div className="mb-4">
+                <p className="text-eyebrow tracking-widest uppercase mb-1" style={{ color: "var(--ink-muted)" }}>
+                  Stone Specifications
+                </p>
+                <p className="text-[13px] whitespace-pre-wrap">{detail.stoneSpecifications}</p>
+              </div>
+            )}
+
+            {detail.careGuidance && (
+              <div className="mb-4">
+                <p className="text-eyebrow tracking-widest uppercase mb-1" style={{ color: "var(--ink-muted)" }}>
+                  Care Guidance
+                </p>
+                <p className="text-[13px] whitespace-pre-wrap">{detail.careGuidance}</p>
+              </div>
+            )}
+
+            {detail.signatory && (
+              <DetailField label="Signatory" value={detail.signatory} />
+            )}
+
+            {detail.revokedReason && (
+              <div className="mt-4 p-3 border" style={{ borderColor: "var(--danger)", background: "rgba(199,62,29,0.04)" }}>
+                <p className="text-eyebrow tracking-widest uppercase" style={{ color: "var(--danger)" }}>
+                  Revocation Reason
+                </p>
+                <p className="text-[13px] mt-1">{detail.revokedReason}</p>
+              </div>
+            )}
+
+            {/* Actions */}
+            {detail.status === "draft" && (
+              <div className="flex gap-2 mt-6">
+                <ActionButton
+                  label="Issue Certificate"
+                  icon={Printer}
+                  onClick={async () => {
+                    if (!USE_API) return;
+                    setActionLoading(true);
+                    try {
+                      const res = await apiRequest<{ data: CertificateRecord }>(
+                        `/certificates/${detail.id}`,
+                        { method: "PATCH", body: JSON.stringify({ status: "issued" }) },
+                      );
+                      setDetail((prev) => prev ? { ...prev, ...res.data, status: "issued" } : prev);
+                    } finally {
+                      setActionLoading(false);
+                    }
+                  }}
+                  loading={actionLoading}
+                />
+                <ActionButton
+                  label="Copy to Clipboard"
+                  icon={Copy}
+                  onClick={() => {
+                    const text = `Certificate of Authenticity\n${detail.certificateNumber}\nPiece: ${detail.pieceName}\nMetal: ${[detail.metalType, detail.karat].filter(Boolean).join(" ")}\n${detail.stoneSpecifications ? `Stones: ${detail.stoneSpecifications}\n` : ""}`;
+                    void navigator.clipboard.writeText(text);
+                  }}
+                />
+              </div>
+            )}
+            {detail.status === "issued" && (
+              <div className="flex gap-2 mt-6">
+                <ActionButton
+                  label="Revoke"
+                  icon={ShieldX}
+                  onClick={async () => {
+                    const reason = prompt("Reason for revocation:");
+                    if (!reason || !USE_API) return;
+                    setActionLoading(true);
+                    try {
+                      const res = await apiRequest<{ data: CertificateRecord }>(
+                        `/certificates/${detail.id}`,
+                        {
+                          method: "PATCH",
+                          body: JSON.stringify({ status: "revoked", revokedReason: reason }),
+                        },
+                      );
+                      setDetail((prev) => prev ? { ...prev, ...res.data, status: "revoked", revokedReason: reason } : prev);
+                    } finally {
+                      setActionLoading(false);
+                    }
+                  }}
+                  loading={actionLoading}
+                  danger
+                />
+                <ActionButton
+                  label="Copy"
+                  icon={Copy}
+                  onClick={() => {
+                    const text = `Certificate #${detail.certificateNumber}\nVerification: ${detail.verificationCode}\nPiece: ${detail.pieceName}\nMetal: ${[detail.metalType, detail.karat].filter(Boolean).join(" ")}`;
+                    void navigator.clipboard.writeText(text);
+                  }}
+                />
+              </div>
+            )}
+            {detail.status === "revoked" && (
+              <div className="flex gap-2 mt-6">
+                <ActionButton
+                  label="Reissue"
+                  icon={RefreshCw}
+                  onClick={async () => {
+                    const reason = prompt("Reason for reissue:");
+                    if (!reason || !USE_API) return;
+                    setActionLoading(true);
+                    try {
+                      const res = await apiRequest<{ data: CertificateRecord }>(
+                        `/certificates/${detail.id}`,
+                        {
+                          method: "PATCH",
+                          body: JSON.stringify({ status: "reissued", reason }),
+                        },
+                      );
+                      setDetail((prev) => prev ? { ...prev, ...res.data, status: "reissued" } : prev);
+                    } finally {
+                      setActionLoading(false);
+                    }
+                  }}
+                  loading={actionLoading}
+                />
+              </div>
+            )}
+
+            {/* DocumentCanvas — print/copy friendly certificate */}
+            {detail && (detail.status === "issued" || detail.status === "reissued") && (
+              <div className="mt-8 border-t border-border pt-6">
+                <p className="text-eyebrow tracking-widest uppercase mb-3" style={{ color: "var(--ink-muted)" }}>
+                  Document
+                </p>
+                <DocumentCanvas
+                  meta={{
+                    kind: "Certificate of Authenticity",
+                    number: detail.certificateNumber,
+                    date: detail.completionDate
+                      ? new Date(detail.completionDate).toLocaleDateString("en-PH", {
+                          year: "numeric",
+                          month: "long",
+                          day: "numeric",
+                        })
+                      : new Date(detail.createdAt).toLocaleDateString("en-PH", {
+                          year: "numeric",
+                          month: "long",
+                          day: "numeric",
+                        }),
+                    dateLabel: "Date of completion",
+                    masthead: "Seine Studio · Certificate of Authenticity",
+                  }}
+                  onCopy={() => {
+                    const lines = [
+                      "CERTIFICATE OF AUTHENTICITY",
+                      `Certificate No: ${detail.certificateNumber}`,
+                      `Verification Code: ${detail.verificationCode || "—"}`,
+                      "",
+                      `Piece: ${detail.pieceName}`,
+                      `Metal: ${[detail.metalType, detail.karat].filter(Boolean).join(" ") || "—"}`,
+                      `Weight: ${detail.weightGrams ? `${detail.weightGrams}g` : "—"}`,
+                      detail.stoneSpecifications ? `Stones: ${detail.stoneSpecifications}` : "",
+                      detail.dimensions ? `Dimensions: ${detail.dimensions}` : "",
+                      detail.completionDate
+                        ? `Completed: ${new Date(detail.completionDate).toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" })}`
+                        : "",
+                      detail.signatory ? `Signatory: ${detail.signatory}` : "",
+                      detail.careGuidance ? `Care: ${detail.careGuidance}` : "",
+                    ].filter(Boolean).join("\n");
+                    return `Seine Studio\n${lines}`;
+                  }}
+                >
+                  <div className="space-y-4 p-4" style={{ fontFamily: "'Playfair Display', serif" }}>
+                    <div className="text-center">
+                      <h2 className="text-[18px] font-serif mb-1">Certificate of Authenticity</h2>
+                      <p className="text-[11px] tracking-[0.2em] uppercase" style={{ color: "var(--ink-muted)" }}>
+                        {detail.certificateNumber}
+                      </p>
+                    </div>
+                    <div className="border-t border-b border-border/50 py-4 space-y-3">
+                      <DocLine label="Piece" value={detail.pieceName} />
+                      <DocLine label="Metal" value={[detail.metalType, detail.karat].filter(Boolean).join(" ") || "—"} />
+                      {detail.stoneSpecifications && <DocLine label="Stones" value={detail.stoneSpecifications} />}
+                      {detail.weightGrams && <DocLine label="Weight" value={`${detail.weightGrams}g`} />}
+                      {detail.dimensions && <DocLine label="Dimensions" value={detail.dimensions} />}
+                      {detail.completionDate && (
+                        <DocLine
+                          label="Completed"
+                          value={new Date(detail.completionDate).toLocaleDateString("en-PH", {
+                            year: "numeric",
+                            month: "long",
+                            day: "numeric",
+                          })}
+                        />
+                      )}
+                      {detail.signatory && <DocLine label="Signatory" value={detail.signatory} />}
+                      {detail.careGuidance && <DocLine label="Care" value={detail.careGuidance} />}
+                      {detail.verificationCode && (
+                        <DocLine label="Verification" value={detail.verificationCode} mono />
+                      )}
+                      {detail.clientName && <DocLine label="Client" value={detail.clientName} />}
+                      {detail.projectName && <DocLine label="Project" value={detail.projectName} />}
+                    </div>
+                  </div>
+                </DocumentCanvas>
+              </div>
+            )}
+
+            {/* Revision history */}
+            {detail.revisions.length > 0 && (
+              <div className="mt-8">
+                <p className="text-eyebrow tracking-widest uppercase mb-2" style={{ color: "var(--ink-muted)" }}>
+                  Revision History
+                </p>
+                <div className="space-y-2">
+                  {detail.revisions.map((rev) => (
+                    <div key={rev.id} className="flex items-center gap-3 text-[12px]">
+                      <span className="min-w-[3rem] font-mono text-[11px]" style={{ color: "var(--accent)" }}>
+                        v{rev.version}
+                      </span>
+                      <span>{rev.reason || "—"}</span>
+                      <span className="ml-auto" style={{ color: "var(--ink-muted)" }}>
+                        {rev.displayName || "—"}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
+            )}
 
-              {/* Certificate fields */}
-              <div className="grid grid-cols-2 gap-4 mb-6">
-                <DetailField label="Status" value={detail.status} />
-                <DetailField label="Client" value={detail.clientName || "—"} />
-                <DetailField label="Piece SKU" value={detail.pieceSku || "—"} />
-                <DetailField label="Metal" value={[detail.metalType, detail.karat].filter(Boolean).join(" ") || "—"} />
-                <DetailField label="Weight" value={detail.weightGrams ? `${detail.weightGrams}g` : "—"} />
-                <DetailField label="Dimensions" value={detail.dimensions || "—"} />
-                {detail.completionDate && (
-                  <DetailField label="Completion" value={new Date(detail.completionDate).toLocaleDateString("en-PH")} />
-                )}
+            {/* Activity */}
+            {detail.activities.length > 0 && (
+              <div className="mt-6">
+                <p className="text-eyebrow tracking-widest uppercase mb-2" style={{ color: "var(--ink-muted)" }}>
+                  Activity
+                </p>
+                <div className="space-y-1.5">
+                  {detail.activities.slice(0, 10).map((a) => (
+                    <div key={a.id} className="flex items-center gap-2 text-[12px]">
+                      <span style={{ color: "var(--ink-muted)" }}>
+                        {new Date(a.createdAt).toLocaleDateString("en-PH", { month: "short", day: "numeric" })}
+                      </span>
+                      <span>{a.summary}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
+            )}
+          </div>
+        ) : null
+      }
+      noSelectionPlaceholder={
+        <p className="text-[13px]" style={{ color: "var(--ink-muted)" }}>
+          Select a certificate to view details
+        </p>
+      }
+    />
 
-              {detail.stoneSpecifications && (
-                <div className="mb-4">
-                  <p className="text-eyebrow tracking-widest uppercase mb-1" style={{ color: "var(--ink-muted)" }}>
-                    Stone Specifications
-                  </p>
-                  <p className="text-[13px] whitespace-pre-wrap">{detail.stoneSpecifications}</p>
-                </div>
-              )}
-
-              {detail.careGuidance && (
-                <div className="mb-4">
-                  <p className="text-eyebrow tracking-widest uppercase mb-1" style={{ color: "var(--ink-muted)" }}>
-                    Care Guidance
-                  </p>
-                  <p className="text-[13px] whitespace-pre-wrap">{detail.careGuidance}</p>
-                </div>
-              )}
-
-              {detail.signatory && (
-                <DetailField label="Signatory" value={detail.signatory} />
-              )}
-
-              {detail.revokedReason && (
-                <div className="mt-4 p-3 border" style={{ borderColor: "var(--danger)", background: "rgba(199,62,29,0.04)" }}>
-                  <p className="text-eyebrow tracking-widest uppercase" style={{ color: "var(--danger)" }}>
-                    Revocation Reason
-                  </p>
-                  <p className="text-[13px] mt-1">{detail.revokedReason}</p>
-                </div>
-              )}
-
-              {/* Actions */}
-              {detail.status === "draft" && (
-                <div className="flex gap-2 mt-6">
-                  <ActionButton
-                    label="Issue Certificate"
-                    icon={Printer}
-                    onClick={async () => {
-                      if (!USE_API) return;
-                      setActionLoading(true);
-                      try {
-                        const res = await apiRequest<{ data: CertificateRecord }>(
-                          `/certificates/${detail.id}`,
-                          { method: "PATCH", body: JSON.stringify({ status: "issued" }) },
-                        );
-                        setDetail((prev) => prev ? { ...prev, ...res.data, status: "issued" } : prev);
-                      } finally {
-                        setActionLoading(false);
-                      }
-                    }}
-                    loading={actionLoading}
-                  />
-                  <ActionButton
-                    label="Copy to Clipboard"
-                    icon={Copy}
-                    onClick={() => {
-                      const text = `Certificate of Authenticity\n${detail.certificateNumber}\nPiece: ${detail.pieceName}\nMetal: ${[detail.metalType, detail.karat].filter(Boolean).join(" ")}\n${detail.stoneSpecifications ? `Stones: ${detail.stoneSpecifications}\n` : ""}`;
-                      void navigator.clipboard.writeText(text);
-                    }}
-                  />
-                </div>
-              )}
-              {detail.status === "issued" && (
-                <div className="flex gap-2 mt-6">
-                  <ActionButton
-                    label="Revoke"
-                    icon={ShieldX}
-                    onClick={async () => {
-                      const reason = prompt("Reason for revocation:");
-                      if (!reason || !USE_API) return;
-                      setActionLoading(true);
-                      try {
-                        const res = await apiRequest<{ data: CertificateRecord }>(
-                          `/certificates/${detail.id}`,
-                          {
-                            method: "PATCH",
-                            body: JSON.stringify({ status: "revoked", revokedReason: reason }),
-                          },
-                        );
-                        setDetail((prev) => prev ? { ...prev, ...res.data, status: "revoked", revokedReason: reason } : prev);
-                      } finally {
-                        setActionLoading(false);
-                      }
-                    }}
-                    loading={actionLoading}
-                    danger
-                  />
-                  <ActionButton
-                    label="Copy"
-                    icon={Copy}
-                    onClick={() => {
-                      const text = `Certificate #${detail.certificateNumber}\nVerification: ${detail.verificationCode}\nPiece: ${detail.pieceName}\nMetal: ${[detail.metalType, detail.karat].filter(Boolean).join(" ")}`;
-                      void navigator.clipboard.writeText(text);
-                    }}
-                  />
-                </div>
-              )}
-              {detail.status === "revoked" && (
-                <div className="flex gap-2 mt-6">
-                  <ActionButton
-                    label="Reissue"
-                    icon={RefreshCw}
-                    onClick={async () => {
-                      const reason = prompt("Reason for reissue:");
-                      if (!reason || !USE_API) return;
-                      setActionLoading(true);
-                      try {
-                        const res = await apiRequest<{ data: CertificateRecord }>(
-                          `/certificates/${detail.id}`,
-                          {
-                            method: "PATCH",
-                            body: JSON.stringify({ status: "reissued", reason }),
-                          },
-                        );
-                        setDetail((prev) => prev ? { ...prev, ...res.data, status: "reissued" } : prev);
-                      } finally {
-                        setActionLoading(false);
-                      }
-                    }}
-                    loading={actionLoading}
-                  />
-                </div>
-              )}
-
-              {/* Revision history */}
-              {detail.revisions.length > 0 && (
-                <div className="mt-8">
-                  <p className="text-eyebrow tracking-widest uppercase mb-2" style={{ color: "var(--ink-muted)" }}>
-                    Revision History
-                  </p>
-                  <div className="space-y-2">
-                    {detail.revisions.map((rev) => (
-                      <div key={rev.id} className="flex items-center gap-3 text-[12px]">
-                        <span className="min-w-[3rem] font-mono text-[11px]" style={{ color: "var(--accent)" }}>
-                          v{rev.version}
-                        </span>
-                        <span>{rev.reason || "—"}</span>
-                        <span className="ml-auto" style={{ color: "var(--ink-muted)" }}>
-                          {rev.displayName || "—"}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Activity */}
-              {detail.activities.length > 0 && (
-                <div className="mt-6">
-                  <p className="text-eyebrow tracking-widest uppercase mb-2" style={{ color: "var(--ink-muted)" }}>
-                    Activity
-                  </p>
-                  <div className="space-y-1.5">
-                    {detail.activities.slice(0, 10).map((a) => (
-                      <div key={a.id} className="flex items-center gap-2 text-[12px]">
-                        <span style={{ color: "var(--ink-muted)" }}>
-                          {new Date(a.createdAt).toLocaleDateString("en-PH", { month: "short", day: "numeric" })}
-                        </span>
-                        <span>{a.summary}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Create Modal */}
-      {showCreate && (
-        <CreateCertificateModal
-          onClose={() => setShowCreate(false)}
-          onCreated={(cert) => {
-            setRecords((prev) => [cert, ...prev]);
-            setShowCreate(false);
-            setSelectedId(cert.id);
-          }}
-        />
-      )}
-    </div>
-  );
+    {/* Create Modal */}
+    {showCreate && (
+      <CreateCertificateModal
+        onClose={() => setShowCreate(false)}
+        onCreated={(cert) => {
+          setRecords((prev) => [cert, ...prev]);
+          setShowCreate(false);
+          setSelectedId(cert.id);
+        }}
+      />
+    )}
+  </>);
 }
 
 function DetailField({ label, value }: { label: string; value: string }) {
@@ -458,6 +533,22 @@ function DetailField({ label, value }: { label: string; value: string }) {
         {label}
       </p>
       <p className="text-[13px] mt-0.5">{value}</p>
+    </div>
+  );
+}
+
+function DocLine({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="flex justify-between items-baseline gap-4">
+      <span className="text-[11px] tracking-[0.12em] uppercase" style={{ color: "var(--ink-muted)" }}>
+        {label}
+      </span>
+      <span
+        className={`text-[13px] text-right ${mono ? "font-mono text-[11px]" : ""}`}
+        style={{ fontFamily: mono ? "'DM Mono', monospace" : undefined }}
+      >
+        {value}
+      </span>
     </div>
   );
 }
@@ -513,8 +604,10 @@ function CreateCertificateModal({
   const [notes, setNotes] = useState("");
   const [catalogPieceId, setCatalogPieceId] = useState("");
   const [clientId, setClientId] = useState("");
+  const [projectId, setProjectId] = useState("");
   const [clients, setClients] = useState<ClientRecord[]>([]);
   const [pieces, setPieces] = useState<{ id: string; name: string; sku: string }[]>([]);
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -523,6 +616,9 @@ function CreateCertificateModal({
     void apiRequest<{ data: ClientRecord[] }>("/clients?limit=100").then((r) => setClients(r.data)).catch(() => {});
     void apiRequest<{ data: { id: string; name: string; sku: string }[] }>("/catalog?limit=100")
       .then((r) => setPieces(r.data))
+      .catch(() => {});
+    void apiRequest<{ data: { id: string; title: string }[] }>("/projects?limit=100")
+      .then((r) => setProjects(r.data.map((p) => ({ id: p.id, name: p.title }))))
       .catch(() => {});
   }, []);
 
@@ -550,6 +646,7 @@ function CreateCertificateModal({
           notes: notes.trim() || undefined,
           catalogPieceId: catalogPieceId || undefined,
           clientId: clientId || undefined,
+          projectId: projectId || undefined,
         }),
       });
       onCreated(res.data);
@@ -561,28 +658,39 @@ function CreateCertificateModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
-      <section
-        role="dialog"
-        aria-modal="true"
-        aria-label="Create certificate"
-        onClick={(e) => e.stopPropagation()}
-        className="bg-card border border-border shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto"
-      >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-          <p className="text-[13px] font-medium">New Certificate</p>
-          <button type="button" onClick={onClose} className="min-h-9 min-w-9 grid place-items-center text-[11px] uppercase tracking-wider text-muted-foreground hover:text-foreground">
-            ✕
+    <Modal
+      open={true}
+      onClose={onClose}
+      title="New Certificate"
+      width={520}
+      footer={
+        <>
+          <button
+            type="button"
+            onClick={onClose}
+            className="min-h-9 px-4 text-[12px] text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Cancel
           </button>
-        </div>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={saving || !pieceName.trim()}
+            className="min-h-9 px-5 text-[12px] font-medium bg-foreground text-card disabled:opacity-50 inline-flex items-center gap-1.5"
+          >
+            {saving ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+            Create Certificate
+          </button>
+        </>
+      }
+    >
+      {error && (
+        <p className="text-[12px] mb-3" style={{ color: "var(--danger)" }}>
+          {error}
+        </p>
+      )}
 
-        {error && (
-          <p className="mx-5 mt-3 text-[12px]" style={{ color: "var(--danger)" }}>
-            {error}
-          </p>
-        )}
-
-        <div className="p-5 space-y-3">
+      <div className="space-y-3">
           <div>
             <label className="block text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Piece Name *</label>
             <input
@@ -698,6 +806,16 @@ function CreateCertificateModal({
             />
           </div>
           <div>
+            <label className="block text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Link to Project</label>
+            <Combobox
+              value={projectId}
+              onValueChange={setProjectId}
+              options={projects.map((p) => ({ value: p.id, label: p.name }))}
+              placeholder="Search projects…"
+              emptyMessage="No projects found"
+            />
+          </div>
+          <div>
             <label className="block text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Notes</label>
             <textarea
               value={notes}
@@ -706,28 +824,8 @@ function CreateCertificateModal({
               rows={2}
             />
           </div>
-        </div>
-
-        <div className="flex justify-end gap-2 px-5 py-4 border-t border-border">
-          <button
-            type="button"
-            onClick={onClose}
-            className="min-h-9 px-4 text-[12px] text-muted-foreground hover:text-foreground transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={saving || !pieceName.trim()}
-            className="min-h-9 px-5 text-[12px] font-medium bg-foreground text-card disabled:opacity-50 inline-flex items-center gap-1.5"
-          >
-            {saving ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
-            Create Certificate
-          </button>
-        </div>
-      </section>
-    </div>
+      </div>
+    </Modal>
   );
 }
 

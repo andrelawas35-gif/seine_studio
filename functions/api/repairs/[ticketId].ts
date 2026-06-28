@@ -5,6 +5,7 @@ import {
   catalogPieces,
   clients,
   locations,
+  projects,
   repairEvents,
   repairTickets,
 } from "../../../src/server/db/schema";
@@ -42,6 +43,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
         clientName: clients.name,
         catalogPieceId: repairTickets.catalogPieceId,
         pieceSku: catalogPieces.sku,
+        catalogPieceName: catalogPieces.name,
+        projectId: repairTickets.projectId,
+        projectName: sql<string | null>`${projects.title}`.as("project_name"),
         pieceDescription: repairTickets.pieceDescription,
         identifyingMarks: repairTickets.identifyingMarks,
         photosUrls: repairTickets.photosUrls,
@@ -99,19 +103,21 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
       .where(eq(repairEvents.repairTicketId, ticketId))
       .orderBy(sql`${repairEvents.occurredAt} desc`);
 
-    const activities = await db
-      .select({
-        id: activityEvents.id,
-        action: activityEvents.action,
-        summary: activityEvents.summary,
-        displayName: appUsers.displayName,
-        createdAt: activityEvents.createdAt,
-      })
+    const activityRows = await db
+      .select()
       .from(activityEvents)
       .leftJoin(appUsers, eq(activityEvents.actorId, appUsers.id))
       .where(sql`${activityEvents.entityType} = 'repair_ticket' and ${activityEvents.entityId} = ${ticketId}`)
       .orderBy(sql`${activityEvents.createdAt} desc`)
       .limit(50);
+
+    const activities = activityRows.map(r => ({
+      id: r.activity_events.id,
+      action: r.activity_events.action,
+      summary: r.activity_events.summary,
+      displayName: r.app_users?.displayName ?? null,
+      createdAt: r.activity_events.createdAt,
+    }));
 
     return json({ data: { ...ticket, events, activities }, requestId });
   } catch (error) {

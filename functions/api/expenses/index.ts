@@ -16,6 +16,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const url = new URL(request.url);
     const category = url.searchParams.get("category");
     const projectId = url.searchParams.get("projectId");
+    const eventId = url.searchParams.get("eventId");
     const isCogs = url.searchParams.get("isCogs");
     const limit = Math.min(Number(url.searchParams.get("limit")) || 50, 100);
     const offset = Math.max(Number(url.searchParams.get("offset")) || 0, 0);
@@ -23,27 +24,13 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const conditions = [];
     if (category) conditions.push(eq(expenses.category, category as never));
     if (projectId) conditions.push(eq(expenses.projectId, projectId));
+    if (eventId) conditions.push(eq(expenses.eventId, eventId));
     if (isCogs !== null) conditions.push(eq(expenses.isCogs, isCogs === "true"));
     const where = and(...conditions);
 
-    const [records, [{ count }]] = await db.batch([
+    const [rows, [{ count }]] = await db.batch([
       db
-        .select({
-          id: expenses.id,
-          supplierId: expenses.supplierId,
-          supplierName: suppliers.name,
-          projectId: expenses.projectId,
-          eventId: expenses.eventId,
-          category: expenses.category,
-          description: expenses.description,
-          amountCents: expenses.amountCents,
-          method: expenses.method,
-          receiptUrl: expenses.receiptUrl,
-          incurredAt: expenses.incurredAt,
-          isCogs: expenses.isCogs,
-          notes: expenses.notes,
-          createdAt: expenses.createdAt,
-        })
+        .select()
         .from(expenses)
         .leftJoin(suppliers, eq(expenses.supplierId, suppliers.id))
         .where(where)
@@ -52,6 +39,23 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         .offset(offset),
       db.select({ count: sql<number>`count(*)::int` }).from(expenses).where(where),
     ]);
+
+    const records = rows.map((r) => ({
+      id: r.expenses.id,
+      supplierId: r.expenses.supplierId,
+      supplierName: r.suppliers?.name ?? null,
+      projectId: r.expenses.projectId,
+      eventId: r.expenses.eventId,
+      category: r.expenses.category,
+      description: r.expenses.description,
+      amountCents: r.expenses.amountCents,
+      method: r.expenses.method,
+      receiptUrl: r.expenses.receiptUrl,
+      incurredAt: r.expenses.incurredAt,
+      isCogs: r.expenses.isCogs,
+      notes: r.expenses.notes,
+      createdAt: r.expenses.createdAt,
+    }));
 
     return json({ data: records, pagination: { limit, offset, total: count }, requestId });
   } catch (error) {

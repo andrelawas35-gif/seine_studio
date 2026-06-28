@@ -1,4 +1,4 @@
-import { and, asc, ilike, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import { activityEvents, catalogPieces } from "../../../src/server/db/schema";
 import { createCatalogPieceInput, listQuery } from "../../../src/server/inventory/input";
 import { requireUser } from "../../_shared/auth";
@@ -18,7 +18,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const search = query.q
       ? or(ilike(catalogPieces.name, `%${query.q}%`), ilike(catalogPieces.sku, `%${query.q}%`))
       : undefined;
-    const where = and(isNull(catalogPieces.archivedAt), search);
+    const categoryFilter = query.category ? eq(catalogPieces.category, query.category) : undefined;
+    const where = and(isNull(catalogPieces.archivedAt), search, categoryFilter);
 
     const [records, [{ count }]] = await db.batch([
       db.select().from(catalogPieces).where(where).orderBy(asc(catalogPieces.name)).limit(query.limit).offset(query.offset),

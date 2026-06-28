@@ -56,18 +56,20 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
       else if (subtracts.has(m.type)) balance -= qty;
     }
 
-    const activity = await db
-      .select({
-        id: activityEvents.id,
-        action: activityEvents.action,
-        summary: activityEvents.summary,
-        createdAt: activityEvents.createdAt,
-        actorName: appUsers.displayName,
-      })
+    const activityRows = await db
+      .select()
       .from(activityEvents)
       .innerJoin(appUsers, eq(activityEvents.actorId, appUsers.id))
       .where(and(eq(activityEvents.entityType, "inventory_lot"), eq(activityEvents.entityId, lotId)))
       .orderBy(asc(activityEvents.createdAt));
+
+    const activity = activityRows.map(r => ({
+      id: r.activity_events.id,
+      action: r.activity_events.action,
+      summary: r.activity_events.summary,
+      createdAt: r.activity_events.createdAt,
+      actorName: r.app_users?.displayName ?? null,
+    }));
 
     return json({
       data: {

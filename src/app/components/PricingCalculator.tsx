@@ -46,6 +46,8 @@ import {
   CommandList,
 } from "./ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { Combobox } from "./ui/combobox";
+import { CurrencyInput, QuantityInput } from "./ui/currency-input";
 
 interface MaterialSuggestion {
   id: string;
@@ -198,23 +200,7 @@ function MoneyInput({ valueCentavos, onChange, label }: {
   onChange: (valueCentavos: number) => void;
   label: string;
 }) {
-  return (
-    <label className="space-y-1">
-      <span className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{label}</span>
-      <div className="flex min-h-10 items-center border border-border bg-card px-2 focus-within:ring-1 focus-within:ring-accent/50">
-        <span className="mr-1 text-[12px] text-muted-foreground">₱</span>
-        <input
-          type="number"
-          inputMode="decimal"
-          min="0"
-          step="0.01"
-          value={centavosToPesos(valueCentavos)}
-          onChange={(event) => onChange(pesosToCentavos(Number(event.target.value)))}
-          className="w-full bg-transparent text-[11px] outline-none"
-        />
-      </div>
-    </label>
-  );
+  return <CurrencyInput centavos={valueCentavos} onChangeCentavos={onChange} label={label} />;
 }
 
 export function PricingCalculator({ projects, clients, inventory, onPrepareQuote }: PricingCalculatorProps) {
@@ -452,19 +438,33 @@ export function PricingCalculator({ projects, clients, inventory, onPrepareQuote
       <section className="grid grid-cols-1 gap-3 border border-border bg-card p-4 sm:grid-cols-3">
         <label className="space-y-1">
           <span className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Project</span>
-          <select value={projectId} onChange={(event) => chooseProject(event.target.value)} className="min-h-10 w-full border border-border bg-card px-2 text-[11px] outline-none focus:ring-1 focus:ring-accent/50">
-            <option value="">New custom inquiry</option>
-            {projects.filter((project) => project.type === "Commission").map((project) => (
-              <option key={project.id} value={project.id}>{project.id} · {project.name}</option>
-            ))}
-          </select>
+          <Combobox
+            options={[
+              { value: "", label: "New custom inquiry" },
+              ...projects
+                .filter((project) => project.type === "Commission")
+                .map((project) => ({ value: project.id, label: `${project.id} · ${project.name}` })),
+            ]}
+            value={projectId}
+            onValueChange={chooseProject}
+            placeholder="Select project…"
+            searchPlaceholder="Search project…"
+            aria-label="Project"
+          />
         </label>
         <label className="space-y-1">
           <span className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Client</span>
-          <select value={clientName} onChange={(event) => setClientName(event.target.value)} className="min-h-10 w-full border border-border bg-card px-2 text-[11px] outline-none focus:ring-1 focus:ring-accent/50">
-            <option value="">Select client</option>
-            {clients.map((client) => <option key={client.id} value={client.name}>{client.name} · {client.location}</option>)}
-          </select>
+          <Combobox
+            options={[
+              { value: "", label: "Select client" },
+              ...clients.map((client) => ({ value: client.name, label: `${client.name} · ${client.location}` })),
+            ]}
+            value={clientName}
+            onValueChange={setClientName}
+            placeholder="Select client…"
+            searchPlaceholder="Search client…"
+            aria-label="Client"
+          />
         </label>
         <label className="space-y-1">
           <span className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Piece or service</span>
@@ -494,13 +494,22 @@ export function PricingCalculator({ projects, clients, inventory, onPrepareQuote
                   </label>
                   <label className="space-y-1">
                     <span className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Type</span>
-                    <select value={line.category} onChange={(event) => updateLine(line.id, { category: event.target.value as PricingLineCategory })} className="min-h-10 w-full border border-border bg-card px-2 text-[12px] outline-none">
-                      {Object.entries(CATEGORY_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                    </select>
+                    <Combobox
+                      options={Object.entries(CATEGORY_LABEL).map(([value, label]) => ({ value, label }))}
+                      value={line.category}
+                      onValueChange={(v) => updateLine(line.id, { category: v as PricingLineCategory })}
+                      placeholder="Select type…"
+                      searchPlaceholder="Search type…"
+                      aria-label={`Category for ${line.description || "line"}`}
+                    />
                   </label>
                   <label className="space-y-1">
                     <span className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Qty / hours</span>
-                    <input type="number" inputMode="decimal" min="0" step="0.01" value={line.quantity} onChange={(event) => updateLine(line.id, { quantity: Number(event.target.value) })} className="min-h-10 w-full border border-border bg-card px-2 text-[11px] outline-none" />
+                    <QuantityInput
+                      value={line.quantity}
+                      onChange={(qty) => updateLine(line.id, { quantity: qty })}
+                      label=""
+                    />
                   </label>
                   <MoneyInput label={`Per ${line.unit}`} valueCentavos={line.unitCostCentavos} onChange={(value) => updateLine(line.id, { unitCostCentavos: value })} />
                   <button type="button" onClick={() => setLines((current) => current.filter((item) => item.id !== line.id))} aria-label={`Remove ${line.description || "line"}`} className="min-h-10 min-w-10 grid place-items-center text-muted-foreground hover:text-red-600">
@@ -527,8 +536,12 @@ export function PricingCalculator({ projects, clients, inventory, onPrepareQuote
               <button type="button" onClick={() => setMarkupType("percentage")} className={`min-h-10 border text-[12px] ${markupType === "percentage" ? "border-foreground bg-foreground text-card" : "border-border text-muted-foreground"}`}>Percentage</button>
             </div>
             <label className="mt-3 block space-y-1">
-              <span className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Brand value {markupType === "fixed" ? "(₱)" : "(%)"}</span>
-              <input type="number" inputMode="decimal" min="0" step={markupType === "fixed" ? "0.01" : "0.1"} value={markupValue} onChange={(event) => setMarkupValue(Number(event.target.value))} className="min-h-10 w-full border border-border bg-card px-3 text-[11px] outline-none" />
+              <span className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Markup {markupType === "fixed" ? "(₱)" : "(%)"}</span>
+              <QuantityInput
+                value={markupValue}
+                onChange={setMarkupValue}
+                label=""
+              />
             </label>
             <div className="mt-3">
               <MoneyInput label="Discount" valueCentavos={discountCentavos} onChange={setDiscountCentavos} />
@@ -559,8 +572,8 @@ export function PricingCalculator({ projects, clients, inventory, onPrepareQuote
                   <dt>{String(label)}</dt><dd className="font-mono">{formatCentavos(Number(value))}</dd>
                 </div>
               ))}
-              <div className="flex justify-between border-t border-white/10 pt-2"><dt>Net capital</dt><dd className="font-mono">{formatCentavos(totals.netCapitalCentavos)}</dd></div>
-              <div className="flex justify-between text-[#D2B06B]"><dt>Brand value</dt><dd className="font-mono">{formatCentavos(totals.markupCentavos)}</dd></div>
+              <div className="flex justify-between border-t border-white/10 pt-2"><dt>Total cost</dt><dd className="font-mono">{formatCentavos(totals.netCapitalCentavos)}</dd></div>
+              <div className="flex justify-between text-[#D2B06B]"><dt>Markup</dt><dd className="font-mono">{formatCentavos(totals.markupCentavos)}</dd></div>
               {totals.discountCentavos > 0 && <div className="flex justify-between text-[#D7A89C]"><dt>Discount</dt><dd className="font-mono">−{formatCentavos(totals.discountCentavos)}</dd></div>}
             </dl>
             <div className="mt-4 border-t border-white/15 pt-4">

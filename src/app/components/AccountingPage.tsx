@@ -2,22 +2,19 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Receipt, FileText, TrendingUp, TrendingDown, DollarSign,
   Plus, MoreHorizontal, AlertCircle, CheckCircle2,
-  Send, Calculator as CalculatorIcon, ExternalLink,
+  Send, ExternalLink,
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import { php, fmtDate, generateId } from "../data";
-import type { Project, Client, InventoryItem } from "../data";
 import { ConfirmDialog } from "../components/Modal";
 import { useToast } from "../components/Toast";
-import { PricingCalculator } from "./PricingCalculator";
-import type { PreparedQuote } from "./PricingCalculator";
+import { useReferenceData } from "./useReferenceData";
 import { apiRequest } from "../api";
 
-import { INITIAL_EXPENSES, INITIAL_INVOICES, INITIAL_QUOTES } from "../accountingData";
-import type { Expense, Invoice, InvoiceStatus, Quote, QuoteStatus } from "../accountingData";
+import type { Expense, Invoice, InvoiceStatus, Quote, QuoteStatus } from "../accountingTypes";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -105,15 +102,10 @@ import { ExpenseCards, InvoiceCards, QuoteCards } from "./AccountingMobileLists"
 
 // ─── Main Accounting Page ─────────────────────────────────────────────────────
 
-interface AccountingPageProps {
-  projects: Project[];
-  clients: Client[];
-  inventory: InventoryItem[];
-}
+type AccountingTab = "overview" | "invoices" | "quotes" | "expenses";
 
-type AccountingTab = "overview" | "pricing" | "invoices" | "quotes" | "expenses";
-
-export function AccountingPage({ projects, clients, inventory }: AccountingPageProps) {
+export function AccountingPage() {
+  const { projects, clients, inventory } = useReferenceData();
   const [tab, setTab] = useState<AccountingTab>("overview");
 
   const switchTab = (id: AccountingTab) => {
@@ -124,9 +116,9 @@ export function AccountingPage({ projects, clients, inventory }: AccountingPageP
     const main = document.querySelector("main");
     if (main) main.scrollTop = 0;
   };
-  const [invoices, setInvoices] = useState<Invoice[]>(INITIAL_INVOICES);
-  const [quotes, setQuotes]     = useState<Quote[]>(INITIAL_QUOTES);
-  const [expenses, setExpenses] = useState<Expense[]>(INITIAL_EXPENSES);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [quotes, setQuotes]     = useState<Quote[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
 
   // Modals
   const [invModal, setInvModal]       = useState<{ open: boolean; invoice?: Invoice }>({ open: false });
@@ -172,6 +164,7 @@ export function AccountingPage({ projects, clients, inventory }: AccountingPageP
   const [apiExpByCategory, setApiExpByCategory] = useState<{ name: string; value: number }[]>([]);
   const [apiRevenueData, setApiRevenueData] = useState<{ month: string; collected: number; outstanding: number; expenses: number }[]>([]);
   const [apiInvoices, setApiInvoices] = useState<ApiInvoiceSummary[]>([]);
+  const [apiOpenQuotes, setApiOpenQuotes] = useState<number | null>(null);
   const [apiLoading, setApiLoading] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
 
@@ -260,13 +253,28 @@ export function AccountingPage({ projects, clients, inventory }: AccountingPageP
     void fetchFinancialSummary();
   }, [fetchFinancialSummary]);
 
+  // Pipeline = quotes still open (sent or accepted, not yet invoiced). Derived from
+  // the quotes source records rather than a stored project price.
+  useEffect(() => {
+    if (!USE_DATABASE) return;
+    let active = true;
+    apiRequest<{ data: Array<{ status: string }> }>("/api/quotes?limit=200")
+      .then((res) => {
+        if (!active) return;
+        setApiOpenQuotes(res.data.filter((q) => q.status === "sent" || q.status === "accepted").length);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [USE_DATABASE]);
+
   // ── Computed Metrics ──────────────────────────────────────────────────────
 
   const metrics = useMemo(() => {
     // Prefer API metrics when available
     if (apiMetrics) {
       const netProfit = apiMetrics.collected - apiMetrics.totalExpenses;
-      const pipeline = projects.filter(p => p.stage !== "Paid").reduce((s, p) => s + p.price, 0);
       return {
         collected: apiMetrics.collected,
         outstanding: apiMetrics.outstanding,
@@ -275,7 +283,6 @@ export function AccountingPage({ projects, clients, inventory }: AccountingPageP
         cogs: apiMetrics.cogs,
         opex: apiMetrics.opex,
         netProfit,
-        pipeline,
       };
     }
 
@@ -284,9 +291,8 @@ export function AccountingPage({ projects, clients, inventory }: AccountingPageP
     const overdue      = invoices.filter(i => i.status === "Overdue").length;
     const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
     const netProfit    = collected - totalExpenses;
-    const pipeline     = projects.filter(p => p.stage !== "Paid").reduce((s, p) => s + p.price, 0);
-    return { collected, outstanding, overdue, totalExpenses, netProfit, pipeline };
-  }, [apiMetrics, invoices, expenses, projects]);
+    return { collected, outstanding, overdue, totalExpenses, netProfit };
+  }, [apiMetrics, invoices, expenses]);
 
   // ── CRUD Handlers ─────────────────────────────────────────────────────────
 
@@ -361,34 +367,8 @@ export function AccountingPage({ projects, clients, inventory }: AccountingPageP
     void: { bg: "bg-stone-100 text-stone-400", label: "Void" },
   };
 
-  const prepareQuote = (draft: PreparedQuote) => {
-    const issue = new Date();
-    const expiry = new Date(issue);
-    expiry.setDate(expiry.getDate() + 14);
-    const toDateInput = (date: Date) => {
-      const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-      return offsetDate.toISOString().slice(0, 10);
-    };
-
-    setQuoteModal({
-      open: true,
-      quote: {
-        id: "",
-        projectId: draft.projectId,
-        clientName: draft.clientName,
-        issueDate: toDateInput(issue),
-        expiryDate: toDateInput(expiry),
-        status: "Draft",
-        lineItems: [{ description: `${draft.description} — custom creation`, amount: draft.totalPesos }],
-        depositRequired: Math.round(draft.totalPesos * 0.5),
-        notes: "Prepared from the custom pricing calculator. Review all client-facing details before sending.",
-      },
-    });
-  };
-
   const TABS: { id: AccountingTab; label: string; icon: React.ReactNode }[] = [
-    { id: "overview",  label: "Overview",  icon: <TrendingUp size={12} /> },
-    { id: "pricing",   label: "Pricing",   icon: <CalculatorIcon size={12} /> },
+    { id: "overview",  label: "Financial summary",  icon: <TrendingUp size={12} /> },
     ...(USE_DATABASE
       ? []
       : [
@@ -436,7 +416,7 @@ export function AccountingPage({ projects, clients, inventory }: AccountingPageP
         <p className="text-[11px] uppercase tracking-[0.22em] text-accent">Finances</p>
         <h2 className="mt-1 font-serif text-2xl text-foreground">Every peso accounted for.</h2>
         <p className="mt-1 max-w-xl text-[12px] leading-5 text-muted-foreground">
-          Revenue, expenses, and custom pricing — derived from your source records, never duplicated.
+          Revenue and expenses — derived from your source records, never duplicated.
         </p>
       </div>
 
@@ -486,8 +466,17 @@ export function AccountingPage({ projects, clients, inventory }: AccountingPageP
                 <StatCard label="Outstanding Balance" value={php(metrics.outstanding)} sub={`${metrics.overdue} overdue invoice${metrics.overdue !== 1 ? "s" : ""}`} trend={metrics.overdue > 0 ? "down" : "neutral"} />
                 <StatCard label="Total Expenses" value={php(metrics.totalExpenses)} sub={USE_DATABASE ? `COGS ${php(metrics.cogs ?? 0)} · OPEX ${php(metrics.opex ?? 0)}` : "Materials, tools & overhead"} />
                 <StatCard label="Net Profit" value={php(metrics.netProfit)} sub={USE_DATABASE ? "Collected minus expenses" : "June — collected minus expenses"} trend={metrics.netProfit > 0 ? "up" : "down"} />
-                <StatCard label="Pipeline Revenue" value={php(metrics.pipeline)} sub="Active projects, not yet invoiced" trend="up" />
-                {USE_DATABASE ? (
+                <StatCard
+                  label="Open Quotes"
+                  value={String(
+                    USE_DATABASE
+                      ? apiOpenQuotes ?? 0
+                      : quotes.filter(q => q.status === "Sent" || q.status === "Accepted").length,
+                  )}
+                  sub="Sent or accepted, not yet invoiced"
+                  trend="up"
+                />
+                {USE_DATABASE && (
                   <div className="p-4 sm:p-5 rounded border bg-card border-border flex flex-col justify-between gap-2">
                     <p className="text-[11px] tracking-[0.2em] uppercase font-medium text-muted-foreground">Quick Actions</p>
                     <div className="space-y-1.5">
@@ -502,17 +491,11 @@ export function AccountingPage({ projects, clients, inventory }: AccountingPageP
                       </a>
                     </div>
                   </div>
-                ) : (
-                  <StatCard label="Pending Quotes" value={String(quotes.filter(q => q.status === "Sent").length)} sub={`${quotes.filter(q => q.status === "Accepted").length} accepted this month`} />
                 )}
               </div>
             </>
           )}
         </>
-      )}
-
-      {tab === "pricing" && (
-        <PricingCalculator projects={projects} clients={clients} inventory={inventory} onPrepareQuote={prepareQuote} />
       )}
 
       {/* ── OVERVIEW TAB ──────────────────────────────────────────────────── */}
@@ -717,7 +700,7 @@ export function AccountingPage({ projects, clients, inventory }: AccountingPageP
               <thead>
                 <tr className="border-b border-border" style={{ background: "rgba(0,0,0,0.02)" }}>
                   {["Invoice #", "Client", "Issued", "Due", "Total", "Deposit Paid", "Balance Due", "Status", ""].map(h => (
-                    <th key={h} className="px-4 py-2.5 text-left text-[8px] tracking-[0.2em] uppercase text-muted-foreground font-medium">{h}</th>
+                    <th key={h} className="px-4 py-2.5 text-left text-[11px] tracking-[0.12em] uppercase text-muted-foreground font-medium">{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -809,7 +792,7 @@ export function AccountingPage({ projects, clients, inventory }: AccountingPageP
               <thead>
                 <tr className="border-b border-border" style={{ background: "rgba(0,0,0,0.02)" }}>
                   {["Quote #", "Client", "Description", "Issued", "Expires", "Total", "Deposit", "Status", ""].map(h => (
-                    <th key={h} className="px-4 py-2.5 text-left text-[8px] tracking-[0.2em] uppercase text-muted-foreground font-medium">{h}</th>
+                    <th key={h} className="px-4 py-2.5 text-left text-[11px] tracking-[0.12em] uppercase text-muted-foreground font-medium">{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -876,7 +859,7 @@ export function AccountingPage({ projects, clients, inventory }: AccountingPageP
               <thead>
                 <tr className="border-b border-border" style={{ background: "rgba(0,0,0,0.02)" }}>
                   {["Date", "Description", "Category", "Supplier", "Amount", ""].map(h => (
-                    <th key={h} className="px-4 py-2.5 text-left text-[8px] tracking-[0.2em] uppercase text-muted-foreground font-medium">{h}</th>
+                    <th key={h} className="px-4 py-2.5 text-left text-[11px] tracking-[0.12em] uppercase text-muted-foreground font-medium">{h}</th>
                   ))}
                 </tr>
               </thead>

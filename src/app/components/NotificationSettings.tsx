@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Bell, BellOff, Clock, Loader2, Check, X } from "lucide-react";
 import { apiRequest, ApiError } from "../api";
+import { Combobox } from "./ui/combobox";
 import {
   isPushSupported,
   requestNotificationPermission,
@@ -161,7 +162,7 @@ export function NotificationSettings({ onClose }: NotificationSettingsProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(23,20,15,0.45)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)" }} onClick={onClose}>
       <section
         role="dialog"
         aria-modal="true"
@@ -272,18 +273,19 @@ export function NotificationSettings({ onClose }: NotificationSettingsProps) {
                 {prefs.dailyReminder && (
                   <div className="flex items-center justify-between py-2 border-t border-border">
                     <span className="text-[13px]">Reminder time</span>
-                    <select
-                      value={prefs.reminderHour}
-                      onChange={(e) => handleHourChange(Number(e.target.value))}
-                      disabled={saving}
-                      className="h-8 px-2 text-[12px] border border-border bg-card text-foreground"
-                    >
-                      {Array.from({ length: 24 }, (_, i) => (
-                        <option key={i} value={i}>
-                          {i === 0 ? "12:00 AM" : i < 12 ? `${i}:00 AM` : i === 12 ? "12:00 PM" : `${i - 12}:00 PM`}
-                        </option>
-                      ))}
-                    </select>
+                    <div className={saving ? "pointer-events-none opacity-60" : ""}>
+                      <Combobox
+                        options={Array.from({ length: 24 }, (_, i) => ({
+                          value: String(i),
+                          label: i === 0 ? "12:00 AM" : i < 12 ? `${i}:00 AM` : i === 12 ? "12:00 PM" : `${i - 12}:00 PM`,
+                        }))}
+                        value={String(prefs.reminderHour)}
+                        onValueChange={(v) => handleHourChange(Number(v))}
+                        placeholder="Select time…"
+                        searchPlaceholder="Search time…"
+                        aria-label="Reminder time"
+                      />
+                    </div>
                   </div>
                 )}
               </>

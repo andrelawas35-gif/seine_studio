@@ -13,6 +13,8 @@ import {
 import { apiRequest, ApiError } from "../api";
 import { php } from "../data";
 import { Combobox } from "./ui/combobox";
+import { MasterDetail } from "./ui/master-detail";
+import { Modal } from "./Modal";
 import type { ClientRecord } from "../clients";
 
 const STATUS_OPTIONS = [
@@ -112,6 +114,10 @@ interface RepairDetail extends RepairRecord {
   releaseAcknowledgment: string | null;
   notes: string | null;
   pieceSku: string | null;
+  catalogPieceId: string | null;
+  catalogPieceName: string | null;
+  projectId: string | null;
+  projectName: string | null;
   updatedAt: string;
   events: {
     id: string;
@@ -214,134 +220,118 @@ export function RepairsPage() {
   };
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4 pb-2">
-        <div>
-          <p className="text-eyebrow tracking-widest uppercase" style={{ color: "var(--accent)" }}>
-            Repair &amp; Alteration Tickets
-          </p>
-          <h2 className="font-serif text-body-lg mt-0.5">Repairs</h2>
-        </div>
-        <button
-          type="button"
-          onClick={() => setShowCreate(true)}
-          className="inline-flex items-center gap-1.5 min-h-9 px-3 border border-border bg-card text-[12px] hover:border-accent/40 transition-colors"
-        >
-          <Plus size={13} />
-          New Repair Ticket
-        </button>
-      </div>
-
-      {/* Search & Filter */}
-      <div className="flex flex-wrap items-center gap-2 px-4 pb-3">
-        <div className="relative flex-1 min-w-[180px] max-w-[320px]">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: "var(--ink-muted)" }} />
-          <input
-            type="search"
-            placeholder="Search repairs…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full h-9 pl-8 pr-3 text-[13px] border border-border bg-transparent"
-          />
-        </div>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="h-9 px-2.5 text-[13px] border border-border bg-transparent"
-        >
-          {STATUS_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="flex flex-1 overflow-hidden border-t border-border">
-        {/* List */}
-        <div className="w-full md:w-80 lg:w-96 flex-shrink-0 overflow-y-auto border-r border-border">
-          {loading && (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 size={18} className="animate-spin" style={{ color: "var(--ink-muted)" }} />
+    <>
+      <MasterDetail
+        hasSelection={!!selectedId}
+        loading={loading}
+        error={error}
+        isEmpty={!loading && !error && records.length === 0}
+        emptyState={
+          <div className="p-6 text-center text-[13px]" style={{ color: "var(--ink-muted)" }}>
+            No repair tickets found.
+          </div>
+        }
+        header={
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4 pb-2">
+            <div>
+              <p className="text-eyebrow tracking-widest uppercase" style={{ color: "var(--accent)" }}>
+                Repair &amp; Alteration Tickets
+              </p>
+              <h2 className="font-serif text-body-lg mt-0.5">Repairs</h2>
             </div>
-          )}
-          {error && (
-            <div className="p-4 text-[13px]" style={{ color: "var(--danger)" }}>
-              {error}
+            <button
+              type="button"
+              onClick={() => setShowCreate(true)}
+              className="inline-flex items-center gap-1.5 min-h-9 px-3 border border-border bg-card text-[12px] hover:border-accent/40 transition-colors"
+            >
+              <Plus size={13} />
+              New Repair Ticket
+            </button>
+          </div>
+        }
+        toolbar={
+          <>
+            <div className="relative flex-1 min-w-[180px] max-w-[320px]">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: "var(--ink-muted)" }} />
+              <input
+                type="search"
+                placeholder="Search repairs…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full h-9 pl-8 pr-3 text-[13px] border border-border bg-transparent"
+              />
             </div>
-          )}
-          {!loading && !error && records.length === 0 && (
-            <div className="p-6 text-center text-[13px]" style={{ color: "var(--ink-muted)" }}>
-              No repair tickets found.
-            </div>
-          )}
-          {records.map((ticket) => {
-            const Icon = STATUS_ICONS[ticket.status] || Wrench;
-            const color = STATUS_COLORS[ticket.status] || "var(--ink-muted)";
-            const overdue =
-              ticket.promisedDate &&
-              ticket.status !== "released" &&
-              ticket.status !== "cancelled" &&
-              new Date(ticket.promisedDate) < new Date();
-            return (
-              <button
-                key={ticket.id}
-                type="button"
-                onClick={() => handleSelect(ticket.id)}
-                className="w-full text-left px-4 py-3 border-b border-border transition-colors hover:bg-[#FAF7F0]"
-                style={{ background: selectedId === ticket.id ? "var(--surface)" : "transparent" }}
-              >
-                <div className="flex items-start gap-2.5">
-                  <Icon size={15} style={{ color }} />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[13px] font-medium truncate">{ticket.pieceDescription}</p>
-                    <p className="text-[11px] mt-0.5" style={{ color: "var(--ink-muted)" }}>
-                      {ticket.ticketNumber}
-                      {ticket.clientName ? ` · ${ticket.clientName}` : ""}
-                    </p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span
-                        className="inline-block text-[10px] px-1.5 py-0.5 font-medium uppercase tracking-wider"
-                        style={{ color }}
-                      >
-                        {ticket.status.replace(/_/g, " ")}
-                      </span>
-                      {overdue && (
+            <Combobox
+              options={[...STATUS_OPTIONS]}
+              value={statusFilter}
+              onValueChange={setStatusFilter}
+              placeholder="Filter status…"
+              searchPlaceholder="Search status…"
+              aria-label="Filter by status"
+            />
+          </>
+        }
+        sidebar={
+          <>
+            {records.map((ticket) => {
+              const Icon = STATUS_ICONS[ticket.status] || Wrench;
+              const color = STATUS_COLORS[ticket.status] || "var(--ink-muted)";
+              const overdue =
+                ticket.promisedDate &&
+                ticket.status !== "released" &&
+                ticket.status !== "cancelled" &&
+                new Date(ticket.promisedDate) < new Date();
+              return (
+                <button
+                  key={ticket.id}
+                  type="button"
+                  onClick={() => handleSelect(ticket.id)}
+                  className="w-full text-left px-4 py-3 border-b border-border transition-colors hover:bg-[#FAF7F0]"
+                  style={{ background: selectedId === ticket.id ? "var(--surface)" : "transparent" }}
+                >
+                  <div className="flex items-start gap-2.5">
+                    <Icon size={15} style={{ color }} />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px] font-medium truncate">{ticket.pieceDescription}</p>
+                      <p className="text-[11px] mt-0.5" style={{ color: "var(--ink-muted)" }}>
+                        {ticket.ticketNumber}
+                        {ticket.clientName ? ` · ${ticket.clientName}` : ""}
+                      </p>
+                      <div className="flex items-center gap-2 mt-1">
                         <span
-                          className="inline-flex items-center gap-0.5 text-[10px] font-medium"
-                          style={{ color: "var(--danger)" }}
+                          className="inline-block text-[10px] px-1.5 py-0.5 font-medium uppercase tracking-wider"
+                          style={{ color }}
                         >
-                          <AlertTriangle size={10} />
-                          Overdue
+                          {ticket.status.replace(/_/g, " ")}
                         </span>
-                      )}
-                      {ticket.estimateCents != null && (
-                        <span className="ml-auto font-mono text-[11px]" style={{ color: "var(--ink-muted)" }}>
-                          {php(ticket.estimateCents / 100)}
-                        </span>
-                      )}
+                        {overdue && (
+                          <span
+                            className="inline-flex items-center gap-0.5 text-[10px] font-medium"
+                            style={{ color: "var(--danger)" }}
+                          >
+                            <AlertTriangle size={10} />
+                            Overdue
+                          </span>
+                        )}
+                        {ticket.estimateCents != null && (
+                          <span className="ml-auto font-mono text-[11px]" style={{ color: "var(--ink-muted)" }}>
+                            {php(ticket.estimateCents / 100)}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Detail */}
-        <div className="hidden md:flex flex-1 overflow-y-auto">
-          {!selectedId && (
-            <div className="flex-1 flex items-center justify-center text-[13px]" style={{ color: "var(--ink-muted)" }}>
-              Select a repair ticket to view details
-            </div>
-          )}
-          {selectedId && detailLoading && (
+                </button>
+              );
+            })}
+          </>
+        }
+        detail={
+          detailLoading ? (
             <div className="flex-1 flex items-center justify-center">
               <Loader2 size={18} className="animate-spin" style={{ color: "var(--ink-muted)" }} />
             </div>
-          )}
-          {selectedId && detail && (
+          ) : detail ? (
             <div className="flex-1 p-6 max-w-3xl">
               {/* Header */}
               <div className="flex items-start gap-3 mb-6">
@@ -399,7 +389,8 @@ export function RepairsPage() {
                 <DetailField label="Requested Work" value={detail.requestedWork} />
                 <DetailField label="Estimate" value={detail.estimateCents != null ? php(detail.estimateCents / 100) : "—"} />
                 <DetailField label="Deposit" value={php(detail.depositCents / 100)} />
-                <DetailField label="Piece SKU" value={detail.pieceSku || "—"} />
+                <DetailField label="Linked Piece" value={detail.catalogPieceName ? `${detail.catalogPieceName} (${detail.pieceSku || "—"})` : "—"} />
+                <DetailField label="Linked Project" value={detail.projectName || "—"} />
               </div>
 
               {detail.identifyingMarks && (
@@ -493,9 +484,14 @@ export function RepairsPage() {
                 </div>
               )}
             </div>
-          )}
-        </div>
-      </div>
+          ) : null
+        }
+        noSelectionPlaceholder={
+          <p className="text-[13px]" style={{ color: "var(--ink-muted)" }}>
+            Select a repair ticket to view details
+          </p>
+        }
+      />
 
       {/* Create Modal */}
       {showCreate && (
@@ -504,10 +500,11 @@ export function RepairsPage() {
           onCreated={(ticket) => {
             setRecords((prev) => [ticket, ...prev]);
             setShowCreate(false);
+            setSelectedId(ticket.id);
           }}
         />
       )}
-    </div>
+    </>
   );
 }
 
@@ -532,6 +529,8 @@ function CreateRepairModal({
   onCreated: (ticket: RepairRecord) => void;
 }) {
   const [clientId, setClientId] = useState("");
+  const [catalogPieceId, setCatalogPieceId] = useState("");
+  const [projectId, setProjectId] = useState("");
   const [pieceDescription, setPieceDescription] = useState("");
   const [identifyingMarks, setIdentifyingMarks] = useState("");
   const [receivedCondition, setReceivedCondition] = useState("");
@@ -542,17 +541,30 @@ function CreateRepairModal({
   const [promisedDate, setPromisedDate] = useState("");
   const [notes, setNotes] = useState("");
   const [clients, setClients] = useState<ClientRecord[]>([]);
+  const [pieces, setPieces] = useState<{ id: string; name: string; sku: string }[]>([]);
+  const [projects, setProjects] = useState<{ id: string; title: string; catalogPieceId: string | null }[]>([]);
   const [modalSaving, setModalSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!USE_API) return;
     void apiRequest<{ data: ClientRecord[] }>("/clients?limit=100").then((r) => setClients(r.data)).catch(() => {});
+    void apiRequest<{ data: { id: string; name: string; sku: string }[] }>("/catalog?limit=100")
+      .then((r) => setPieces(r.data))
+      .catch(() => {});
+    void apiRequest<{ data: { id: string; title: string; catalogPieceId: string | null }[] }>("/projects?limit=100")
+      .then((r) => setProjects(r.data))
+      .catch(() => {});
   }, []);
+
+  // Auto-suggest project when piece is selected
+  const suggestedProjects = catalogPieceId
+    ? projects.filter((p) => p.catalogPieceId === catalogPieceId)
+    : projects;
 
   const handleSubmit = async () => {
     if (!clientId) { setError("Client is required."); return; }
-    if (!pieceDescription.trim()) { setError("Piece description is required."); return; }
+    if (!pieceDescription.trim()) { setError("Item description is required."); return; }
     if (!requestedWork.trim()) { setError("Requested work is required."); return; }
     if (!USE_API) return;
     setModalSaving(true);
@@ -562,6 +574,8 @@ function CreateRepairModal({
         method: "POST",
         body: JSON.stringify({
           clientId,
+          catalogPieceId: catalogPieceId || undefined,
+          projectId: projectId || undefined,
           pieceDescription: pieceDescription.trim(),
           identifyingMarks: identifyingMarks.trim() || undefined,
           receivedCondition: receivedCondition.trim() || undefined,
@@ -582,31 +596,39 @@ function CreateRepairModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
-      <section
-        role="dialog"
-        aria-modal="true"
-        aria-label="Create repair ticket"
-        onClick={(e) => e.stopPropagation()}
-        className="bg-card border border-border shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto"
-      >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-          <div className="flex items-center gap-2">
-            <Wrench size={15} style={{ color: "var(--accent)" }} />
-            <p className="text-[13px] font-medium">New Repair Ticket</p>
-          </div>
-          <button type="button" onClick={onClose} className="min-h-9 min-w-9 grid place-items-center text-[11px] uppercase tracking-wider text-muted-foreground hover:text-foreground">
-            ✕
+    <Modal
+      open={true}
+      onClose={onClose}
+      title="New Repair Ticket"
+      width={520}
+      footer={
+        <>
+          <button
+            type="button"
+            onClick={onClose}
+            className="min-h-9 px-4 text-[12px] text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Cancel
           </button>
-        </div>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={modalSaving || !clientId || !pieceDescription.trim() || !requestedWork.trim()}
+            className="min-h-9 px-5 text-[12px] font-medium bg-foreground text-card disabled:opacity-50 inline-flex items-center gap-1.5"
+          >
+            {modalSaving ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+            Create Ticket
+          </button>
+        </>
+      }
+    >
+      {error && (
+        <p className="text-[12px] mb-3" style={{ color: "var(--danger)" }}>
+          {error}
+        </p>
+      )}
 
-        {error && (
-          <p className="mx-5 mt-3 text-[12px]" style={{ color: "var(--danger)" }}>
-            {error}
-          </p>
-        )}
-
-        <div className="p-5 space-y-3">
+      <div className="space-y-3">
           <div>
             <label className="block text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Client *</label>
             <Combobox
@@ -618,7 +640,34 @@ function CreateRepairModal({
             />
           </div>
           <div>
-            <label className="block text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Piece Description *</label>
+            <label className="block text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Was this originally our piece?</label>
+            <Combobox
+              value={catalogPieceId}
+              onValueChange={(id) => {
+                setCatalogPieceId(id);
+                // Auto-suggest project when piece selected
+                if (id && !projectId) {
+                  const matching = projects.filter((p) => p.catalogPieceId === id);
+                  if (matching.length === 1) setProjectId(matching[0].id);
+                }
+              }}
+              options={pieces.map((p) => ({ value: p.id, label: `${p.name} (${p.sku})` }))}
+              placeholder="Search catalog pieces…"
+              emptyMessage="No pieces found"
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Link to Project</label>
+            <Combobox
+              value={projectId}
+              onValueChange={setProjectId}
+              options={suggestedProjects.map((p) => ({ value: p.id, label: p.title }))}
+              placeholder="Search projects…"
+              emptyMessage={catalogPieceId ? "No projects linked to this piece" : "No projects found"}
+            />
+          </div>
+          <div>
+            <label className="block text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Item Description *</label>
             <input
               type="text"
               value={pieceDescription}
@@ -707,28 +756,8 @@ function CreateRepairModal({
               rows={2}
             />
           </div>
-        </div>
-
-        <div className="flex justify-end gap-2 px-5 py-4 border-t border-border">
-          <button
-            type="button"
-            onClick={onClose}
-            className="min-h-9 px-4 text-[12px] text-muted-foreground hover:text-foreground transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={modalSaving || !clientId || !pieceDescription.trim() || !requestedWork.trim()}
-            className="min-h-9 px-5 text-[12px] font-medium bg-foreground text-card disabled:opacity-50 inline-flex items-center gap-1.5"
-          >
-            {modalSaving ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
-            Create Ticket
-          </button>
-        </div>
-      </section>
-    </div>
+      </div>
+    </Modal>
   );
 }
 

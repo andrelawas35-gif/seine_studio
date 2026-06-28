@@ -1,5 +1,15 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
-import { activityEvents, appUsers, catalogPieces } from "../../../src/server/db/schema";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import {
+  activityEvents,
+  appUsers,
+  catalogPieces,
+  certificates,
+  clients,
+  inventoryLots,
+  projects,
+  repairTickets,
+  stockMovements,
+} from "../../../src/server/db/schema";
 import { uuidParam, updateCatalogPieceInput } from "../../../src/server/inventory/input";
 import { requireUser } from "../../_shared/auth";
 import { createDatabase } from "../../_shared/db";
@@ -26,20 +36,116 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
       .limit(1);
     if (!record) throw new HttpError(404, "Catalog piece not found.", "piece_not_found");
 
-    const activity = await db
-      .select({
-        id: activityEvents.id,
-        action: activityEvents.action,
-        summary: activityEvents.summary,
-        createdAt: activityEvents.createdAt,
-        actorName: appUsers.displayName,
-      })
-      .from(activityEvents)
-      .innerJoin(appUsers, eq(activityEvents.actorId, appUsers.id))
-      .where(and(eq(activityEvents.entityType, "catalog_piece"), eq(activityEvents.entityId, pieceId)))
-      .orderBy(asc(activityEvents.createdAt));
+    const [activityRows, linkedProjects, linkedStock, linkedCertificates, linkedRepairs] = await Promise.all([
+      db
+        .select()
+        .from(activityEvents)
+        .innerJoin(appUsers, eq(activityEvents.actorId, appUsers.id))
+        .where(and(eq(activityEvents.entityType, "catalog_piece"), eq(activityEvents.entityId, pieceId)))
+        .orderBy(asc(activityEvents.createdAt)),
 
-    return json({ data: { piece: record, activity }, requestId });
+      // Projects referencing this piece
+      db
+        .select()
+        .from(projects)
+        .innerJoin(clients, eq(projects.clientId, clients.id))
+        .where(and(eq(projects.catalogPieceId, pieceId), isNull(projects.archivedAt)))
+        .orderBy(asc(projects.createdAt)),
+
+      // Finished-piece stock lots linked to this piece
+      db
+        .select({
+          id: inventoryLots.id,
+          code: inventoryLots.code,
+          description: inventoryLots.description,
+          unitCostCents: inventoryLots.unitCostCents,
+        })
+        .from(inventoryLots)
+        .where(
+          and(
+            eq(inventoryLots.catalogPieceId, pieceId),
+            eq(inventoryLots.kind, "finished_piece"),
+            isNull(inventoryLots.archivedAt),
+          ),
+        )
+        .orderBy(asc(inventoryLots.code)),
+
+      // Certificates issued for this piece
+      db
+        .select()
+        .from(certificates)
+        .leftJoin(clients, eq(certificates.clientId, clients.id))
+        .where(eq(certificates.catalogPieceId, pieceId))
+        .orderBy(asc(certificates.createdAt)),
+
+      // Repairs referencing this piece
+      db
+        .select()
+        .from(repairTickets)
+        .leftJoin(clients, eq(repairTickets.clientId, clients.id))
+        .where(eq(repairTickets.catalogPieceId, pieceId))
+        .orderBy(asc(repairTickets.createdAt)),
+
+      // Units sold: computed after Promise.all (needs linkedStock lot IDs)
+      Promise.resolve([{ totalSold: 0 }]),
+    ]);
+
+    const activity = activityRows.map(r => ({
+      id: r.activity_events.id,
+      action: r.activity_events.action,
+      summary: r.activity_events.summary,
+      createdAt: r.activity_events.createdAt,
+      actorName: r.app_users?.displayName ?? null,
+    }));
+
+    // Units sold: count of sale stock movements on lots linked to this piece
+    let totalSold = 0;
+    const lotIds = linkedStock.map(l => l.id);
+    if (lotIds.length > 0) {
+      const [soldResult] = await db
+        .select({
+          totalSold: sql<number>`coalesce(sum(${stockMovements.quantity}), 0)::int`,
+        })
+        .from(stockMovements)
+        .where(
+          and(
+            inArray(stockMovements.lotId, lotIds),
+            eq(stockMovements.type, "sale"),
+          ),
+        );
+      totalSold = soldResult?.totalSold ?? 0;
+    }
+
+    const usage = {
+      projects: linkedProjects.map(r => ({
+        id: r.projects.id,
+        projectNumber: r.projects.projectNumber,
+        title: r.projects.title,
+        stage: r.projects.stage,
+        clientName: r.clients?.displayName ?? null,
+        targetDate: r.projects.targetDate,
+      })),
+      stockLots: linkedStock,
+      certificates: linkedCertificates.map(r => ({
+        id: r.certificates.id,
+        certificateNumber: r.certificates.certificateNumber,
+        status: r.certificates.status,
+        pieceName: r.certificates.pieceName,
+        clientName: r.clients?.displayName ?? null,
+        issuedAt: r.certificates.createdAt,
+      })),
+      repairs: linkedRepairs.map(r => ({
+        id: r.repair_tickets.id,
+        ticketNumber: r.repair_tickets.ticketNumber,
+        pieceDescription: r.repair_tickets.pieceDescription,
+        status: r.repair_tickets.status,
+        clientName: r.clients?.displayName ?? null,
+        createdAt: r.repair_tickets.createdAt,
+      })),
+      totalSold,
+    };
+
+    return json({ data: { piece: record, activity, usage }, requestId });
   } catch (error) {
     return errorResponse(error, requestId);
   }

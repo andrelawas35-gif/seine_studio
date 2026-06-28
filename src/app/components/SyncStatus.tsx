@@ -41,7 +41,7 @@ export function SyncStatus() {
       <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} className="inline-flex min-h-9 items-center gap-2 border border-border bg-card px-2.5 text-[9px] uppercase tracking-wider text-muted-foreground">
         {!online ? <CloudOff size={13} className="text-amber-700" /> : conflicts || failed ? <AlertTriangle size={13} className="text-amber-700" /> : <Cloud size={13} className="text-accent" />}
         <span className="hidden sm:inline">{label}</span>
-        {total > 0 && <span className="grid h-4 min-w-4 place-items-center rounded-full bg-foreground px-1 text-[8px] text-background">{total}</span>}
+        {total > 0 && <span className="grid h-4 min-w-5 place-items-center rounded-full bg-foreground px-1 text-[10px] leading-none text-background">{total}</span>}
       </button>
 
       {open && (
@@ -67,7 +67,7 @@ export function SyncStatus() {
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="truncate font-mono text-[9px] text-foreground">{entry.method} {entry.path}</p>
-                      <p className="mt-1 text-[8px] uppercase tracking-wider text-muted-foreground">{entry.status} · {entry.attempts} attempt{entry.attempts === 1 ? "" : "s"}</p>
+                      <p className="mt-1 text-[11px] uppercase tracking-[0.08em] text-muted-foreground">{entry.status} · {entry.attempts} attempt{entry.attempts === 1 ? "" : "s"}</p>
                       {entry.lastError && <p className="mt-1 text-[9px] text-red-700">{entry.lastError}</p>}
                     </div>
                     <div className="flex">
@@ -90,5 +90,5 @@ export function SyncStatus() {
 }
 
 function StatusCount({ label, value, warning = false }: { label: string; value: number; warning?: boolean }) {
-  return <div className="border border-border p-2"><p className={`font-serif text-lg ${warning && value ? "text-amber-800" : "text-foreground"}`}>{value}</p><p className="text-[8px] uppercase tracking-wider text-muted-foreground">{label}</p></div>;
+  return <div className="border border-border p-2"><p className={`font-serif text-lg ${warning && value ? "text-amber-800" : "text-foreground"}`}>{value}</p><p className="text-[11px] uppercase tracking-[0.08em] text-muted-foreground">{label}</p></div>;
 }

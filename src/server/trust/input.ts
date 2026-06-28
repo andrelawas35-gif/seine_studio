@@ -5,6 +5,7 @@ import { z } from "zod";
 export const createCertificateInput = z.object({
   catalogPieceId: z.string().uuid().optional(),
   clientId: z.string().uuid().optional(),
+  projectId: z.string().uuid().optional(),
   pieceName: z.string().min(1, "Piece name is required").max(255),
   metalType: z.string().max(100).optional(),
   karat: z.string().max(50).optional(),
@@ -22,6 +23,9 @@ export const createCertificateInput = z.object({
 
 export const updateCertificateInput = z.object({
   pieceName: z.string().min(1).max(255).optional(),
+  catalogPieceId: z.string().uuid().optional(),
+  clientId: z.string().uuid().optional(),
+  projectId: z.string().uuid().optional(),
   metalType: z.string().max(100).optional(),
   karat: z.string().max(50).optional(),
   stoneSpecifications: z.string().max(2000).optional(),
@@ -55,6 +59,7 @@ export const reissueCertificateInput = z.object({
 export const createRepairInput = z.object({
   clientId: z.string().uuid("Client is required"),
   catalogPieceId: z.string().uuid().optional(),
+  projectId: z.string().uuid().optional(),
   pieceDescription: z.string().min(1, "Piece description is required").max(2000),
   identifyingMarks: z.string().max(2000).optional(),
   photosUrls: z.array(z.string().url()).max(20).optional(),
@@ -70,6 +75,8 @@ export const createRepairInput = z.object({
 
 export const updateRepairInput = z.object({
   pieceDescription: z.string().min(1).max(2000).optional(),
+  catalogPieceId: z.string().uuid().optional(),
+  projectId: z.string().uuid().optional(),
   identifyingMarks: z.string().max(2000).optional(),
   photosUrls: z.array(z.string().url()).max(20).optional(),
   receivedCondition: z.string().max(5000).optional(),

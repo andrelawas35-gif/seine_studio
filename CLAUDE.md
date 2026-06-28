@@ -44,7 +44,7 @@ Full design doc and architecture decisions are in `project.md`. Read it before m
 
 - Never expose `DATABASE_URL` in the browser or `VITE_*` prefixed variables.
 - Two-email allowlist enforced on the server (`OWNER_EMAIL`, `DEVELOPER_EMAIL`). Public registration disabled.
-- Both `VITE_NEON_AUTH_URL` (client) and `NEON_AUTH_URL` (server) = the Neon Auth base URL **with** `/neondb/auth`. Better Auth REST routes are relative to it (`/sign-in/email`, `/sign-up/email`, `/get-session`, `/token`, `/sign-out`); JWKS is at `{url}/.well-known/jwks.json`. Do **not** use a root-domain `/api/auth/...` form — the proxy reads the first path segment as the database name and it 404s. See `docs/post-deployment-fixes.md`.
+- `VITE_NEON_AUTH_URL` = `/neon-auth` (same-origin proxy; `functions/neon-auth/[[path]].ts` forwards to Neon Auth so cookies stay first-party). `NEON_AUTH_URL` (server) = `https://...neonauth...tech/neondb/auth` for upstream forwarding and JWKS verification. Do **not** point `VITE_NEON_AUTH_URL` directly at the Neon Auth host — that creates a cross-site cookie that iOS Safari/PWAs drop. See `docs/post-deployment-fixes.md`.
 
 ### PWA
 

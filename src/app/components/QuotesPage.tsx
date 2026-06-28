@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FileText, Plus, Search, ChevronRight, Copy, Printer, ArrowRight, X } from "lucide-react";
+import { FileText, Plus, Search, Copy, Printer, ArrowRight, X, Lock, Rocket } from "lucide-react";
+import { useNavigate } from "react-router";
 import { apiRequest } from "../api";
 import { Combobox, type ComboboxOption } from "./ui/combobox";
+import { MasterDetail } from "./ui/master-detail";
 import { DocumentCanvas, DocumentLineTable, DocumentTotals, type DocumentMeta } from "./DocumentCanvas";
+import { QuotePricingPanel } from "./QuotePricingPanel";
+import { Modal } from "./Modal";
 import { php } from "../data";
 import { format, parseISO } from "date-fns";
 
@@ -82,6 +86,7 @@ const USE_DATABASE = import.meta.env.VITE_DATA_MODE === "api";
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function QuotesPage() {
+  const navigate = useNavigate();
   const [quotes, setQuotes] = useState<QuoteRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,7 +95,7 @@ export function QuotesPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<QuoteDetail | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [mobileView, setMobileView] = useState<"list" | "detail">("list");
+  const [converting, setConverting] = useState(false);
 
   // ── Create form state
   const [clientId, setClientId] = useState("");
@@ -154,7 +159,6 @@ export function QuotesPage() {
 
   const handleSelect = (id: string) => {
     setSelectedId(id);
-    setMobileView("detail");
   };
 
   const handleCreate = async () => {
@@ -195,6 +199,43 @@ export function QuotesPage() {
     }
   };
 
+  // ── Convert to project (F3.2) ──────────────────────────────────────
+  const handleConvertToProject = async () => {
+    if (!detail || !USE_DATABASE) return;
+    setConverting(true);
+    try {
+      const latestSnap = detail.versions?.[detail.versions.length - 1]?.snapshot;
+      const snap = (latestSnap && typeof latestSnap === "object" ? latestSnap as Record<string, unknown> : null);
+      const pieceName = (snap?.pieceName as string) || "";
+      const projectTitle = pieceName || `${detail.clientName || "Client"} commission`;
+
+      const res = await apiRequest<{ data: { id: string; projectNumber: string } }>("/api/quotes/convert", {
+        method: "POST",
+        body: JSON.stringify({
+          quoteId: detail.id,
+          clientId: detail.clientId,
+          title: projectTitle,
+          brief: detail.notes || undefined,
+          depositPercent: detail.depositPercent,
+          catalogPieceId: (snap?.pieceId as string) || undefined,
+        }),
+      });
+
+      // Mark quote as converted
+      await apiRequest(`/api/quotes/${detail.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "converted" }),
+      });
+
+      void fetchQuotes();
+      navigate(`/projects/${res.data.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to convert quote to project");
+    } finally {
+      setConverting(false);
+    }
+  };
+
   const resetForm = () => {
     setClientId("");
     setDepositPercent(50);
@@ -222,6 +263,9 @@ export function QuotesPage() {
 
   const latestSnapshot = detail?.versions?.[detail.versions.length - 1]?.snapshot;
 
+  const isLocked = detail?.status === "accepted" || detail?.status === "converted" || detail?.status === "declined" || detail?.status === "expired";
+  const isEditable = detail?.status === "draft" || detail?.status === "sent" || detail?.status === "viewed";
+
   // ── Empty state
   if (!USE_DATABASE) {
     return (
@@ -233,102 +277,83 @@ export function QuotesPage() {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* ── Header ─────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-4 sm:px-5 py-4 border-b border-border bg-card">
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.22em] text-accent">Quotes</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setShowCreate(true)}
-          className="inline-flex items-center gap-1.5 min-h-9 px-3 border border-border bg-card text-[12px] hover:border-accent/40 transition-colors"
-        >
-          <Plus size={13} />
-          Create quote
-        </button>
-      </div>
-
-      {/* ── Toolbar ────────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-2 px-4 sm:px-5 py-3 border-b border-border bg-card">
-        <div className="relative flex-1 min-w-[160px] max-w-[320px]">
-          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search quotes..."
-            className="w-full min-h-9 pl-8 pr-3 border border-border bg-card text-[13px] outline-none focus:border-accent/40"
-          />
-        </div>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="min-h-9 border border-border bg-card px-2 text-[13px] outline-none"
-        >
-          <option value="">All statuses</option>
-          {Object.entries(STATUS_LABELS).map(([k, v]) => (
-            <option key={k} value={k}>{v}</option>
-          ))}
-        </select>
-      </div>
-
-      {/* ── Content ────────────────────────────────────────────────────── */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* List */}
-        <div className={`${selectedId && mobileView === "detail" ? "hidden" : "flex"} md:flex flex-col w-full md:w-80 lg:w-96 border-r border-border overflow-y-auto`}>
-          {loading && (
-            <p className="p-4 text-[12px] text-muted-foreground">Loading…</p>
-          )}
-          {error && (
-            <p className="p-4 text-[12px] text-destructive">{error}</p>
-          )}
-          {!loading && !error && quotes.length === 0 && (
-            <div className="p-8 text-center">
-              <FileText size={24} className="mx-auto text-accent/30 mb-2" />
-              <p className="text-[13px] text-muted-foreground">No quotes yet</p>
+    <>
+      <MasterDetail
+        hasSelection={!!selectedId}
+        loading={loading}
+        error={error}
+        isEmpty={!loading && !error && quotes.length === 0}
+        emptyState={
+          <div className="p-8 text-center">
+            <FileText size={24} className="mx-auto text-accent/30 mb-2" />
+            <p className="text-[13px] text-muted-foreground">No quotes yet</p>
+          </div>
+        }
+        header={
+          <div className="flex items-center justify-between px-4 sm:px-5 py-4 border-b border-border bg-card">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.22em] text-accent">Quotes</p>
             </div>
-          )}
-          {quotes.map((q) => (
             <button
-              key={q.id}
               type="button"
-              onClick={() => handleSelect(q.id)}
-              className={`w-full text-left px-4 py-3 border-b border-border hover:bg-muted/30 transition-colors ${selectedId === q.id ? "bg-accent/5 border-l-2 border-l-accent" : ""}`}
+              onClick={() => setShowCreate(true)}
+              className="inline-flex items-center gap-1.5 min-h-9 px-3 border border-border bg-card text-[12px] hover:border-accent/40 transition-colors"
             >
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-[13px] font-medium text-foreground truncate">{q.clientName || q.quoteNumber}</p>
-                <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium border rounded ${STATUS_STYLES[q.status] || ""}`}>
-                  {STATUS_LABELS[q.status] || q.status}
-                </span>
-              </div>
-              <p className="text-[11px] text-muted-foreground font-mono mt-0.5">{q.quoteNumber}</p>
-              <p className="text-[11px] text-muted-foreground mt-0.5">
-                {q.createdAt ? format(parseISO(q.createdAt), "dd MMM yyyy") : ""}
-              </p>
+              <Plus size={13} />
+              Create quote
             </button>
-          ))}
-        </div>
-
-        {/* Detail */}
-        <div className={`${mobileView === "list" ? "hidden" : "flex"} md:flex flex-1 flex-col overflow-y-auto`}>
-          {!selectedId && (
-            <div className="flex-1 flex items-center justify-center text-muted-foreground">
-              <p className="text-[13px]">Select a quote or create a new one</p>
+          </div>
+        }
+        toolbar={
+          <>
+            <div className="relative flex-1 min-w-[160px] max-w-[320px]">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search quotes..."
+                className="w-full min-h-9 pl-8 pr-3 border border-border bg-card text-[13px] outline-none focus:border-accent/40"
+              />
             </div>
-          )}
-
-          {selectedId && detail && (
-            <div className="flex-1 overflow-y-auto">
-              {/* Mobile back */}
+            <Combobox
+              options={[
+                { value: "", label: "All statuses" },
+                ...Object.entries(STATUS_LABELS).map(([k, v]) => ({ value: k, label: v })),
+              ]}
+              value={statusFilter}
+              onValueChange={setStatusFilter}
+              placeholder="Filter status…"
+              searchPlaceholder="Search status…"
+              aria-label="Filter by status"
+            />
+          </>
+        }
+        sidebar={
+          <>
+            {quotes.map((q) => (
               <button
+                key={q.id}
                 type="button"
-                onClick={() => setMobileView("list")}
-                className="md:hidden flex items-center gap-1 px-4 py-2 text-[12px] text-accent border-b border-border"
+                onClick={() => handleSelect(q.id)}
+                className={`w-full text-left px-4 py-3 border-b border-border hover:bg-muted/30 transition-colors ${selectedId === q.id ? "bg-accent/5 border-l-2 border-l-accent" : ""}`}
               >
-                <ChevronRight size={13} className="rotate-180" />
-                Back to list
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[13px] font-medium text-foreground truncate">{q.clientName || q.quoteNumber}</p>
+                  <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium border rounded ${STATUS_STYLES[q.status] || ""}`}>
+                    {STATUS_LABELS[q.status] || q.status}
+                  </span>
+                </div>
+                <p className="text-[11px] text-muted-foreground font-mono mt-0.5">{q.quoteNumber}</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {q.createdAt ? format(parseISO(q.createdAt), "dd MMM yyyy") : ""}
+                </p>
               </button>
-
+            ))}
+          </>
+        }
+        detail={
+          detail ? (
+            <div className="flex-1 overflow-y-auto">
               {/* Quote info bar */}
               <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-border bg-card">
                 <div>
@@ -336,6 +361,12 @@ export function QuotesPage() {
                   <p className="text-[11px] text-muted-foreground font-mono">{detail.quoteNumber}</p>
                 </div>
                 <div className="flex items-center gap-2">
+                  {isLocked && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium border border-amber-200 bg-amber-50 text-amber-700 rounded" title="This quote is locked — changes are not allowed.">
+                      <Lock size={10} />
+                      Locked
+                    </span>
+                  )}
                   <span className={`inline-flex items-center px-2 py-0.5 text-[10px] font-medium border rounded ${STATUS_STYLES[detail.status] || ""}`}>
                     {STATUS_LABELS[detail.status] || detail.status}
                   </span>
@@ -357,84 +388,134 @@ export function QuotesPage() {
                       Accept
                     </button>
                   )}
+                  {detail.status === "accepted" && (
+                    <button
+                      type="button"
+                      onClick={handleConvertToProject}
+                      disabled={converting}
+                      className="inline-flex items-center gap-1.5 min-h-9 px-3 border border-accent/40 bg-accent text-white text-[11px] disabled:opacity-40 transition-opacity"
+                    >
+                      <Rocket size={12} />
+                      {converting ? "Converting…" : "Convert to project"}
+                    </button>
+                  )}
                 </div>
               </div>
 
-              {/* Document preview */}
-              <div className="p-4 sm:p-6">
-                {docMeta && (
-                  <DocumentCanvas
-                    meta={docMeta}
-                    onCopy={() => {
-                      const lines = latestSnapshot && typeof latestSnapshot === "object" && "lines" in latestSnapshot
-                        ? (latestSnapshot.lines as Array<{ description: string; amount: number }>) || []
-                        : [];
-                      return [
-                        `Quote ${detail.quoteNumber}`,
-                        `Client: ${detail.clientName}`,
-                        "",
-                        ...lines.map((l) => `${l.description}: ${php(l.amount)}`),
-                      ].join("\n");
-                    }}
-                  >
-                    {/* Client info */}
-                    <div style={{ marginBottom: 16 }}>
-                      <p style={{ fontSize: 14, fontWeight: 500, color: "#17140F" }}>
-                        {detail.clientName}
-                      </p>
-                      {detail.terms && (
-                        <p style={{ fontSize: 12, color: "#7A6F5E", marginTop: 4 }}>{detail.terms}</p>
-                      )}
-                    </div>
+              {/* Locked banner */}
+              {isLocked && (
+                <div className="px-4 sm:px-5 py-2.5 border-b border-amber-200 bg-amber-50 text-[11px] text-amber-800 flex items-center gap-2">
+                  <Lock size={12} />
+                  This quote has been {detail.status}. Pricing and terms can no longer be changed.
+                  {detail.status === "accepted" && " Convert it to a project to begin billing."}
+                </div>
+              )}
 
-                    {/* Line items if snapshot exists */}
-                    {latestSnapshot && typeof latestSnapshot === "object" && "lines" in latestSnapshot ? (
-                      <>
-                        <DocumentLineTable
-                          lines={(latestSnapshot.lines as Array<{
-                            description: string;
-                            quantity?: number;
-                            amount: number;
-                            note?: string;
-                          }>) || []}
-                          currencyFormatter={php}
-                        />
-                        {"totals" in latestSnapshot && (
-                          <DocumentTotals
-                            totals={(latestSnapshot.totals as Array<{
-                              label: string;
-                              value: number;
-                              bold?: boolean;
-                              rule?: "above" | "below";
-                            }>) || []}
-                            currencyFormatter={php}
-                          />
-                        )}
-                      </>
-                    ) : (
-                      <div className="border border-dashed border-border p-8 text-center text-[12px] text-muted-foreground">
-                        <p>No line items yet.</p>
-                        <p className="mt-1">Add a pricing version to populate this quote.</p>
-                      </div>
-                    )}
-
-                    {/* Deposit / terms info */}
-                    {detail.depositPercent && (
-                      <div style={{ marginTop: 24, paddingTop: 12, borderTop: "1px solid rgba(23,20,15,0.08)" }}>
-                        <p style={{ fontSize: 12, color: "#7A6F5E" }}>
-                          {detail.depositPercent}% deposit required to begin production.
+              {/* Pricing editor (editable quotes) or locked snapshot */}
+              {isEditable ? (
+                <QuotePricingPanel
+                  key={detail.versions?.length ?? 0}
+                  quoteId={detail.id}
+                  quoteNumber={detail.quoteNumber}
+                  clientName={detail.clientName}
+                  existingSnapshot={latestSnapshot}
+                  locked={false}
+                  onVersionSaved={() => { void fetchDetail(detail.id); }}
+                />
+              ) : (
+                <div className="p-4 sm:p-6">
+                  {docMeta && (
+                    <DocumentCanvas
+                      meta={docMeta}
+                      onCopy={() => {
+                        const snap = latestSnapshot && typeof latestSnapshot === "object" ? latestSnapshot as Record<string, unknown> : null;
+                        const totals = snap?.totals as Record<string, number> | undefined;
+                        const lines = Array.isArray(snap?.lines) ? snap.lines as Array<{ description: string; quantity?: number; unitCostCentavos?: number }> : [];
+                        const pieceName = (snap?.pieceName as string) || "";
+                        return [
+                          `Quote ${detail.quoteNumber}`,
+                          `Client: ${detail.clientName}`,
+                          pieceName ? `Piece: ${pieceName}` : "",
+                          "",
+                          ...lines.map((l) => {
+                            const total = (l.quantity || 1) * (l.unitCostCentavos || 0);
+                            return `${l.description}: ${php(total / 100)}`;
+                          }),
+                          "",
+                          totals ? `Total cost: ${php(totals.totalCostCentavos / 100)}` : "",
+                          totals ? `Selling price: ${php(totals.sellingPriceCentavos / 100)}` : "",
+                        ].filter(Boolean).join("\n");
+                      }}
+                    >
+                      <div style={{ marginBottom: 16 }}>
+                        <p style={{ fontSize: 14, fontWeight: 500, color: "#17140F" }}>
+                          {detail.clientName}
                         </p>
+                        {detail.terms && (
+                          <p style={{ fontSize: 12, color: "#7A6F5E", marginTop: 4 }}>{detail.terms}</p>
+                        )}
                       </div>
-                    )}
 
-                    {detail.notes && (
-                      <p style={{ fontSize: 12, color: "#7A6F5E", marginTop: 12, fontStyle: "italic" }}>
-                        {detail.notes}
-                      </p>
-                    )}
-                  </DocumentCanvas>
-                )}
-              </div>
+                      {latestSnapshot && typeof latestSnapshot === "object" ? (
+                        <>
+                          <DocumentLineTable
+                            lines={(Array.isArray((latestSnapshot as Record<string, unknown>).lines)
+                              ? ((latestSnapshot as Record<string, unknown>).lines as Array<{
+                                  description: string;
+                                  quantity?: number;
+                                  unitCostCentavos?: number;
+                                  category?: string;
+                                }>).map((l) => ({
+                                  description: l.description,
+                                  quantity: l.quantity,
+                                  amount: ((l.quantity || 1) * (l.unitCostCentavos || 0)) / 100,
+                                  note: l.category,
+                                }))
+                              : [])}
+                            currencyFormatter={(v) => php(v)}
+                          />
+                          {(latestSnapshot as Record<string, unknown>).totals && (
+                            <DocumentTotals
+                              totals={(() => {
+                                const t = (latestSnapshot as Record<string, unknown>).totals as Record<string, number>;
+                                const lines: Array<{ label: string; value: number; bold?: boolean; rule?: "above" | "below" }> = [
+                                  { label: "Total cost", value: t.totalCostCentavos / 100 },
+                                ];
+                                if (t.markupCentavos > 0) lines.push({ label: "Markup", value: t.markupCentavos / 100 });
+                                if (t.discountCentavos > 0) lines.push({ label: "Discount", value: -t.discountCentavos / 100 });
+                                lines.push({ label: "Selling price", value: t.sellingPriceCentavos / 100, bold: true, rule: "above" });
+                                if (t.grossProfitCentavos !== undefined) {
+                                  lines.push({ label: "Gross profit", value: t.grossProfitCentavos / 100 });
+                                }
+                                return lines;
+                              })()}
+                              currencyFormatter={(v) => php(v)}
+                            />
+                          )}
+                        </>
+                      ) : (
+                        <div className="border border-dashed border-border p-8 text-center text-[12px] text-muted-foreground">
+                          <p>No line items recorded.</p>
+                        </div>
+                      )}
+
+                      {detail.depositPercent && (
+                        <div style={{ marginTop: 24, paddingTop: 12, borderTop: "1px solid rgba(23,20,15,0.08)" }}>
+                          <p style={{ fontSize: 12, color: "#7A6F5E" }}>
+                            {detail.depositPercent}% deposit required to begin production.
+                          </p>
+                        </div>
+                      )}
+
+                      {detail.notes && (
+                        <p style={{ fontSize: 12, color: "#7A6F5E", marginTop: 12, fontStyle: "italic" }}>
+                          {detail.notes}
+                        </p>
+                      )}
+                    </DocumentCanvas>
+                  )}
+                </div>
+              )}
 
               {/* Activity timeline */}
               {detail.activity && detail.activity.length > 0 && (
@@ -456,25 +537,41 @@ export function QuotesPage() {
                 </div>
               )}
             </div>
-          )}
-        </div>
-      </div>
+          ) : null
+        }
+        noSelectionPlaceholder={
+          <p className="text-[13px]">Select a quote or create a new one</p>
+        }
+      />
 
       {/* ── Create modal ───────────────────────────────────────────────── */}
       {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setShowCreate(false)}>
-          <div
-            className="bg-card border border-border shadow-xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-              <p className="text-[13px] font-medium">Create quote</p>
-              <button type="button" onClick={() => setShowCreate(false)} className="p-1">
-                <X size={15} />
+        <Modal
+          open={showCreate}
+          onClose={() => setShowCreate(false)}
+          title="Create quote"
+          width={480}
+          footer={
+            <>
+              <button
+                type="button"
+                onClick={() => setShowCreate(false)}
+                className="min-h-9 px-4 text-[12px] text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Cancel
               </button>
-            </div>
-
-            <div className="p-5 space-y-4">
+              <button
+                type="button"
+                onClick={handleCreate}
+                disabled={!clientId || saving}
+                className="min-h-9 px-4 border border-accent/40 bg-accent text-white text-[12px] disabled:opacity-40 transition-opacity"
+              >
+                {saving ? "Creating…" : "Create quote"}
+              </button>
+            </>
+          }
+        >
+          <div className="space-y-4">
               <div>
                 <label className="block text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Client *</label>
                 <Combobox
@@ -529,28 +626,9 @@ export function QuotesPage() {
                   className="w-full border border-border bg-card px-3 py-2 text-[13px] outline-none focus:border-accent/40 resize-none"
                 />
               </div>
-            </div>
-
-            <div className="flex justify-end gap-2 px-5 py-4 border-t border-border">
-              <button
-                type="button"
-                onClick={() => setShowCreate(false)}
-                className="min-h-9 px-4 text-[12px] text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleCreate}
-                disabled={!clientId || saving}
-                className="min-h-9 px-4 border border-accent/40 bg-accent text-white text-[12px] disabled:opacity-40 transition-opacity"
-              >
-                {saving ? "Creating…" : "Create quote"}
-              </button>
-            </div>
           </div>
-        </div>
+        </Modal>
       )}
-    </div>
+    </>
   );
 }

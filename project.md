@@ -97,7 +97,7 @@ Prefer semantic design tokens over repeating hex values in components. Status co
 
 ### Mobile Application Shell
 
-- Use a bottom navigation bar on phone with at most five destinations: Home, Projects, Inventory, Clients, and More.
+- Use a bottom navigation bar on phone with four primary destinations: Home, Projects, Catalog, Clients — plus a More drawer for Inventory, Events, Quotes, Invoices, Expenses, Accounting, Certificates, Repairs, and Reply Templates.
 - Put contextual creation in a clearly labeled page action or bottom sheet; avoid a global unlabeled floating `+`.
 - Use single-column cards and summary rows below 768 px. Replace wide tables with sortable lists that open a detail screen or sheet.
 - Keep touch targets at least 44 x 44 CSS pixels and keep destructive actions away from primary thumb zones.
@@ -380,7 +380,7 @@ Default checklist templates should cover venue confirmation and fees, organizer 
 
 #### Event Interface
 
-Place `Events` inside the mobile `More` destination so the five-item bottom navigation limit remains intact. Each event workspace should use calm sections for `Overview`, `Stock Pull`, `Checklist`, `Budget`, `Sales`, and `Reconciliation`, with one clear primary action per stage.
+Place `Events` inside the mobile `More` destination so the four-item bottom navigation limit remains intact. `Inventory` also lives in More, keeping the primary nav to four icons for a native app feel. Each event workspace should use calm sections for `Overview`, `Stock Pull`, `Checklist`, `Budget`, `Sales`, and `Reconciliation`, with one clear primary action per stage.
 
 The late Phase 1 slice includes event details, temporary locations, stock suggestions, confirmed reservations/transfers, checklists, budgets, packing lists, and opening/closing counts. Phase 2 adds event-linked sales, payments, actual expenses, margin, profitability, and closeout reporting. Barcode/QR scanning, organizer integrations, lead capture automation, staff scheduling, and commerce synchronization remain upgrades.
 

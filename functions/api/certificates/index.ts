@@ -5,6 +5,7 @@ import {
   certificates,
   certificateRevisions,
   clients,
+  projects,
 } from "../../../src/server/db/schema";
 import {
   createCertificateInput,
@@ -43,6 +44,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const status = url.searchParams.get("status");
     const pieceId = url.searchParams.get("pieceId");
     const clientId = url.searchParams.get("clientId");
+    const projectId = url.searchParams.get("projectId");
     const search = url.searchParams.get("search");
     const limit = Math.min(Number(url.searchParams.get("limit")) || 50, 100);
     const offset = Math.max(Number(url.searchParams.get("offset")) || 0, 0);
@@ -51,6 +53,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     if (status) conditions.push(eq(certificates.status, status as never));
     if (pieceId) conditions.push(eq(certificates.catalogPieceId, pieceId));
     if (clientId) conditions.push(eq(certificates.clientId, clientId));
+    if (projectId) conditions.push(eq(certificates.projectId, projectId));
     if (search) {
       conditions.push(
         sql`(${certificates.certificateNumber} ilike ${`%${search}%`} or ${certificates.pieceName} ilike ${`%${search}%`})`,
@@ -58,31 +61,36 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     }
     const where = and(...conditions);
 
-    const [records, [{ count }]] = await db.batch([
+    const [rows, [{ count }]] = await db.batch([
       db
-        .select({
-          id: certificates.id,
-          certificateNumber: certificates.certificateNumber,
-          catalogPieceId: certificates.catalogPieceId,
-          pieceName: certificates.pieceName,
-          clientId: certificates.clientId,
-          clientName: clients.name,
-          status: certificates.status,
-          metalType: certificates.metalType,
-          karat: certificates.karat,
-          stoneSpecifications: certificates.stoneSpecifications,
-          completionDate: certificates.completionDate,
-          verificationCode: sql<string | null>`CASE WHEN ${certificates.status} IN ('issued', 'reissued') THEN ${certificates.verificationCode} ELSE NULL END`.as("verification_code"),
-          createdAt: certificates.createdAt,
-        })
+        .select()
         .from(certificates)
         .leftJoin(clients, eq(certificates.clientId, clients.id))
+        .leftJoin(projects, eq(certificates.projectId, projects.id))
         .where(where)
         .orderBy(desc(certificates.createdAt))
         .limit(limit)
         .offset(offset),
       db.select({ count: sql<number>`count(*)::int` }).from(certificates).where(where),
     ]);
+
+    const records = rows.map((r) => ({
+      id: r.certificates.id,
+      certificateNumber: r.certificates.certificateNumber,
+      catalogPieceId: r.certificates.catalogPieceId,
+      pieceName: r.certificates.pieceName,
+      clientId: r.certificates.clientId,
+      clientName: r.clients?.name ?? null,
+      projectId: r.certificates.projectId,
+      projectName: r.projects?.title ?? null,
+      status: r.certificates.status,
+      metalType: r.certificates.metalType,
+      karat: r.certificates.karat,
+      stoneSpecifications: r.certificates.stoneSpecifications,
+      completionDate: r.certificates.completionDate,
+      verificationCode: r.certificates.status === 'issued' || r.certificates.status === 'reissued' ? r.certificates.verificationCode : null,
+      createdAt: r.certificates.createdAt,
+    }));
 
     return json({ data: records, pagination: { limit, offset, total: count }, requestId });
   } catch (error) {
@@ -120,7 +128,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         .insert(certificates)
         .values({
           id: certId,
-          certificateNumber: certNumber,
+          crojectId: input.projectId || undefined,
+          pertificateNumber: certNumber,
           catalogPieceId: input.catalogPieceId || undefined,
           clientId: input.clientId || undefined,
           pieceName: input.pieceName,

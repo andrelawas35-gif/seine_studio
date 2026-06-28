@@ -28,6 +28,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const url = new URL(request.url);
     const status = url.searchParams.get("status");
     const clientId = url.searchParams.get("clientId");
+    const projectId = url.searchParams.get("projectId");
     const search = url.searchParams.get("search");
     const overdue = url.searchParams.get("overdue");
     const limit = Math.min(Number(url.searchParams.get("limit")) || 50, 100);
@@ -36,6 +37,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const conditions = [];
     if (status) conditions.push(eq(repairTickets.status, status as never));
     if (clientId) conditions.push(eq(repairTickets.clientId, clientId));
+    if (projectId) conditions.push(eq(repairTickets.projectId, projectId));
     if (search) {
       conditions.push(
         sql`(${repairTickets.ticketNumber} ilike ${`%${search}%`} or ${repairTickets.pieceDescription} ilike ${`%${search}%`})`,
@@ -48,23 +50,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     }
     const where = and(...conditions);
 
-    const [records, [{ count }]] = await db.batch([
+    const [rows, [{ count }]] = await db.batch([
       db
-        .select({
-          id: repairTickets.id,
-          ticketNumber: repairTickets.ticketNumber,
-          clientId: repairTickets.clientId,
-          clientName: clients.name,
-          pieceDescription: repairTickets.pieceDescription,
-          requestedWork: repairTickets.requestedWork,
-          status: repairTickets.status,
-          estimateCents: repairTickets.estimateCents,
-          depositCents: repairTickets.depositCents,
-          promisedDate: repairTickets.promisedDate,
-          currentLocationId: repairTickets.currentLocationId,
-          currentLocationName: locations.name,
-          createdAt: repairTickets.createdAt,
-        })
+        .select()
         .from(repairTickets)
         .leftJoin(clients, eq(repairTickets.clientId, clients.id))
         .leftJoin(locations, eq(repairTickets.currentLocationId, locations.id))
@@ -74,6 +62,22 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         .offset(offset),
       db.select({ count: sql<number>`count(*)::int` }).from(repairTickets).where(where),
     ]);
+
+    const records = rows.map((r) => ({
+      id: r.repair_tickets.id,
+      ticketNumber: r.repair_tickets.ticketNumber,
+      clientId: r.repair_tickets.clientId,
+      clientName: r.clients?.name ?? null,
+      pieceDescription: r.repair_tickets.pieceDescription,
+      requestedWork: r.repair_tickets.requestedWork,
+      status: r.repair_tickets.status,
+      estimateCents: r.repair_tickets.estimateCents,
+      depositCents: r.repair_tickets.depositCents,
+      promisedDate: r.repair_tickets.promisedDate,
+      currentLocationId: r.repair_tickets.currentLocationId,
+      currentLocationName: r.locations?.name ?? null,
+      createdAt: r.repair_tickets.createdAt,
+    }));
 
     return json({ data: records, pagination: { limit, offset, total: count }, requestId });
   } catch (error) {
@@ -114,6 +118,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
           ticketNumber,
           clientId: input.clientId,
           catalogPieceId: input.catalogPieceId || undefined,
+          projectId: input.projectId || undefined,
           pieceDescription: input.pieceDescription,
           identifyingMarks: input.identifyingMarks,
           photosUrls: input.photosUrls || [],

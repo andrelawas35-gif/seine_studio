@@ -41,7 +41,7 @@ export function PwaStatus() {
         <p className="text-[11px] font-medium text-foreground">
           {!online ? "You are offline" : needRefresh ? "Update available" : "Ready for offline use"}
         </p>
-        <p className="text-[9px] text-muted-foreground">
+        <p className="text-[11px] text-muted-foreground">
           {!online
             ? "Previously loaded screens remain available. Financial changes still require a connection."
             : needRefresh
@@ -53,7 +53,7 @@ export function PwaStatus() {
         <button
           type="button"
           onClick={() => updateServiceWorker(true)}
-          className="min-h-9 border border-foreground bg-foreground px-3 text-[10px] font-medium text-card"
+          className="min-h-9 border border-foreground bg-foreground px-3 text-[11px] font-medium text-card"
         >
           Refresh
         </button>

@@ -27,6 +27,14 @@ interface ClientDetailResponse {
   data: {
     client: Omit<ClientRecord, "source">;
     activity: ClientActivity[];
+    finance?: { lifetimeSpend: number; balanceDue: number };
+    related?: {
+      projects: Array<{ id: string; projectNumber: string | null; title: string; stage: string; targetDate: string | null; createdAt: string }>;
+      quotes: Array<{ id: string; quoteNumber: string | null; totalCents: number | null; status: string; createdAt: string }>;
+      invoices: Array<{ id: string; invoiceNumber: string | null; totalCents: number; paidCents: number; status: string; issuedAt: string | null }>;
+      repairs: Array<{ id: string; ticketNumber: string; pieceDescription: string; status: string; createdAt: string }>;
+      certificates: Array<{ id: string; certificateNumber: string; pieceName: string; status: string; createdAt: string }>;
+    };
   };
 }
 
@@ -132,6 +140,8 @@ export function ClientsPage() {
   const { toast } = useToast();
   const [records, setRecords] = useState<ClientRecord[]>(() => INITIAL_CLIENTS.map(fixtureClientToRecord));
   const [activity, setActivity] = useState<ClientActivity[]>([]);
+  const [finance, setFinance] = useState<{ lifetimeSpend: number; balanceDue: number } | null>(null);
+  const [related, setRelated] = useState<ClientDetailResponse["data"]["related"] | null>(null);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(USE_DATABASE);
   const [error, setError] = useState<string | null>(null);
@@ -177,6 +187,7 @@ export function ClientsPage() {
   useEffect(() => {
     if (!selected) {
       setActivity([]);
+      setFinance(null);
       return;
     }
     if (!USE_DATABASE) {
@@ -195,7 +206,11 @@ export function ClientsPage() {
     let active = true;
     apiRequest<ClientDetailResponse>(`/clients/${selected.id}`)
       .then((response) => {
-        if (active) setActivity(response.data.activity);
+        if (active) {
+          setActivity(response.data.activity);
+          if (response.data.finance) setFinance(response.data.finance);
+          if (response.data.related) setRelated(response.data.related);
+        }
       })
       .catch(() => {
         if (active) setActivity([]);
@@ -421,12 +436,100 @@ export function ClientsPage() {
                 <div className="space-y-6 p-5">
                   <div>
                     <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Connected work</p>
-                    {projects.length ? projects.map((project) => (
+                    {finance && (
+                      <div className="mb-3 grid grid-cols-2 gap-2">
+                        <div className="border border-border p-2">
+                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Lifetime Spend</p>
+                          <p className="mt-0.5 font-mono text-[13px] text-emerald-800">{php(finance.lifetimeSpend / 100)}</p>
+                        </div>
+                        <div className="border border-border p-2">
+                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Balance Due</p>
+                          <p className={`mt-0.5 font-mono text-[13px] ${finance.balanceDue > 0 ? "text-amber-700" : "text-muted-foreground"}`}>{php(finance.balanceDue / 100)}</p>
+                        </div>
+                      </div>
+                    )}
+                    {related ? (
+                      <div className="space-y-4">
+                        {related.projects.length > 0 && (
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">Projects ({related.projects.length})</p>
+                            {related.projects.slice(0, 5).map((p) => (
+                              <div key={p.id} className="border border-border bg-background p-2 mb-1">
+                                <div className="flex items-center justify-between">
+                                  <p className="text-[11px] font-medium">{p.title}</p>
+                                  <span className="text-[10px] px-1.5 py-0.5 uppercase tracking-wider" style={{ color: "var(--ink-muted)", background: "var(--surface)" }}>{p.stage}</span>
+                                </div>
+                                <p className="text-[11px] text-muted-foreground mt-0.5">{p.projectNumber || "—"}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {related.invoices.length > 0 && (
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">Invoices ({related.invoices.length})</p>
+                            {related.invoices.slice(0, 5).map((inv) => (
+                              <div key={inv.id} className="border border-border bg-background p-2 mb-1">
+                                <div className="flex items-center justify-between">
+                                  <p className="text-[11px] font-medium">{inv.invoiceNumber || "—"}</p>
+                                  <span className="text-[10px] px-1.5 py-0.5 uppercase tracking-wider" style={{ color: "var(--ink-muted)", background: "var(--surface)" }}>{inv.status}</span>
+                                </div>
+                                <p className="text-[11px] text-muted-foreground mt-0.5">{php(inv.totalCents / 100)} · Paid {php(inv.paidCents / 100)}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {related.quotes.length > 0 && (
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">Quotes ({related.quotes.length})</p>
+                            {related.quotes.slice(0, 5).map((q) => (
+                              <div key={q.id} className="border border-border bg-background p-2 mb-1">
+                                <div className="flex items-center justify-between">
+                                  <p className="text-[11px] font-medium">{q.quoteNumber || "—"}</p>
+                                  <span className="text-[10px] px-1.5 py-0.5 uppercase tracking-wider" style={{ color: "var(--ink-muted)", background: "var(--surface)" }}>{q.status}</span>
+                                </div>
+                                {q.totalCents != null && <p className="text-[11px] text-muted-foreground mt-0.5">{php(q.totalCents / 100)}</p>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {related.repairs.length > 0 && (
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">Repairs ({related.repairs.length})</p>
+                            {related.repairs.slice(0, 5).map((r) => (
+                              <div key={r.id} className="border border-border bg-background p-2 mb-1">
+                                <div className="flex items-center justify-between">
+                                  <p className="text-[11px] font-medium truncate">{r.pieceDescription}</p>
+                                  <span className="text-[10px] px-1.5 py-0.5 uppercase tracking-wider" style={{ color: "var(--ink-muted)", background: "var(--surface)" }}>{r.status}</span>
+                                </div>
+                                <p className="text-[11px] text-muted-foreground mt-0.5">{r.ticketNumber}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {related.certificates.length > 0 && (
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">Certificates ({related.certificates.length})</p>
+                            {related.certificates.slice(0, 5).map((c) => (
+                              <div key={c.id} className="border border-border bg-background p-2 mb-1">
+                                <div className="flex items-center justify-between">
+                                  <p className="text-[11px] font-medium">{c.pieceName}</p>
+                                  <span className="text-[10px] px-1.5 py-0.5 uppercase tracking-wider" style={{ color: "var(--ink-muted)", background: "var(--surface)" }}>{c.status}</span>
+                                </div>
+                                <p className="text-[11px] text-muted-foreground mt-0.5">{c.certificateNumber}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {!related.projects.length && !related.invoices.length && !related.quotes.length && !related.repairs.length && !related.certificates.length && (
+                          <p className="border border-dashed border-border p-4 text-[12px] text-muted-foreground">No linked work yet.</p>
+                        )}
+                      </div>
+                    ) : !USE_DATABASE && projects.length ? projects.map((project) => (
                       <div key={project.id} className="mb-2 border border-border bg-background p-3">
                         <p className="text-[11px] font-medium text-foreground">{project.name}</p>
                         <p className="mt-1 text-[11px] text-muted-foreground">{project.stage} · {php(project.price)}</p>
                       </div>
-                    )) : <p className="border border-dashed border-border p-4 text-[12px] text-muted-foreground">Projects and lifetime spend will appear here from their authoritative records.</p>}
+                    )) : !USE_DATABASE ? <p className="border border-dashed border-border p-4 text-[12px] text-muted-foreground">No projects linked yet.</p> : null}
                   </div>
                   <div>
                     <p className="mb-3 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Activity</p>

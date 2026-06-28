@@ -16,26 +16,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     const quoteId = (params as Record<string, string>).quoteId;
     if (!quoteId) return json({ error: "Quote ID is required", requestId }, { status: 400 });
 
-    const [record, versions, [activity]] = await Promise.all([
+    const [rows, versions, activityRows] = await Promise.all([
       db
-        .select({
-          id: quotes.id,
-          quoteNumber: quotes.quoteNumber,
-          clientId: quotes.clientId,
-          clientName: clients.name,
-          projectId: quotes.projectId,
-          projectTitle: projects.title,
-          pricingVersionId: quotes.pricingVersionId,
-          status: quotes.status,
-          depositPercent: quotes.depositPercent,
-          terms: quotes.terms,
-          validUntil: quotes.validUntil,
-          acceptedAt: quotes.acceptedAt,
-          notes: quotes.notes,
-          createdBy: quotes.createdBy,
-          createdAt: quotes.createdAt,
-          updatedAt: quotes.updatedAt,
-        })
+        .select()
         .from(quotes)
         .leftJoin(clients, eq(quotes.clientId, clients.id))
         .leftJoin(projects, eq(quotes.projectId, projects.id))
@@ -51,9 +34,29 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
         .where(eq(activityEvents.entityId, quoteId)),
     ]);
 
-    if (!record) return json({ error: "Quote not found", requestId }, { status: 404 });
+    const row = rows[0];
+    if (!row) return json({ error: "Quote not found", requestId }, { status: 404 });
 
-    return json({ data: { ...record, versions, activity }, requestId });
+    const record = {
+      id: row.quotes.id,
+      quoteNumber: row.quotes.quoteNumber,
+      clientId: row.quotes.clientId,
+      clientName: row.clients?.name ?? null,
+      projectId: row.quotes.projectId,
+      projectTitle: row.projects?.title ?? null,
+      pricingVersionId: row.quotes.pricingVersionId,
+      status: row.quotes.status,
+      depositPercent: row.quotes.depositPercent,
+      terms: row.quotes.terms,
+      validUntil: row.quotes.validUntil,
+      acceptedAt: row.quotes.acceptedAt,
+      notes: row.quotes.notes,
+      createdBy: row.quotes.createdBy,
+      createdAt: row.quotes.createdAt,
+      updatedAt: row.quotes.updatedAt,
+    };
+
+    return json({ data: { ...record, versions, activity: activityRows }, requestId });
   } catch (error) {
     return errorResponse(error, requestId);
   }

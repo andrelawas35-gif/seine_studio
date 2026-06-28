@@ -1,5 +1,5 @@
 import { and, asc, eq, ilike, isNull, or, sql } from "drizzle-orm";
-import { activityEvents, inventoryLots, stockMovements } from "../../../src/server/db/schema";
+import { activityEvents, catalogPieces, inventoryLots, stockMovements } from "../../../src/server/db/schema";
 import { createInventoryLotInput, listQuery } from "../../../src/server/inventory/input";
 import { requireUser } from "../../_shared/auth";
 import { createDatabase } from "../../_shared/db";
@@ -22,12 +22,25 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     const where = and(isNull(inventoryLots.archivedAt), search, kindFilter);
 
     const [records, [{ count }]] = await db.batch([
-      db.select().from(inventoryLots).where(where).orderBy(asc(inventoryLots.description)).limit(query.limit).offset(query.offset),
+      db.select()
+        .from(inventoryLots)
+        .leftJoin(catalogPieces, eq(inventoryLots.catalogPieceId, catalogPieces.id))
+        .where(where)
+        .orderBy(asc(inventoryLots.description))
+        .limit(query.limit)
+        .offset(query.offset),
       db.select({ count: sql<number>`count(*)::int` }).from(inventoryLots).where(where),
     ]);
 
+    // Transform joined rows into the expected flat shape
+    const flatRecords = records.map((r) => ({
+      ...r.inventory_lots,
+      catalogPieceSku: r.catalog_pieces?.sku ?? null,
+      catalogPieceName: r.catalog_pieces?.name ?? null,
+    }));
+
     // Derive on-hand balances from stock movements for each lot
-    const lotIds = records.map((r) => r.id);
+    const lotIds = flatRecords.map((r) => r.id);
     const balances: Record<string, number> = {};
 
     if (lotIds.length > 0) {
@@ -63,8 +76,10 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     // On-hand is derived purely from append-only movements. Lot creation always
     // writes an initial `receipt` movement for initialQuantity, so seeding the
     // balance with initialQuantity here would double-count it.
-    const data = records.map((lot) => ({
+    const data = flatRecords.map((lot) => ({
       ...lot,
+      catalogPieceName: lot.catalogPieceName ?? null,
+      catalogPieceSku: lot.catalogPieceSku ?? null,
       onHandQuantity: String(balances[lot.id] ?? 0),
     }));
 

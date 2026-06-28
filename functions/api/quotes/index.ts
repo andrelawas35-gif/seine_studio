@@ -24,19 +24,9 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
     if (status) conditions.push(eq(quotes.status, status as never));
     const where = and(...conditions);
 
-    const [records, [{ count }]] = await db.batch([
+    const [rows, [{ count }]] = await db.batch([
       db
-        .select({
-          id: quotes.id,
-          quoteNumber: quotes.quoteNumber,
-          clientId: quotes.clientId,
-          clientName: clients.name,
-          projectId: quotes.projectId,
-          status: quotes.status,
-          depositPercent: quotes.depositPercent,
-          validUntil: quotes.validUntil,
-          createdAt: quotes.createdAt,
-        })
+        .select()
         .from(quotes)
         .leftJoin(clients, eq(quotes.clientId, clients.id))
         .where(where)
@@ -45,6 +35,18 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         .offset(offset),
       db.select({ count: sql<number>`count(*)::int` }).from(quotes).where(where),
     ]);
+
+    const records = rows.map((r) => ({
+      id: r.quotes.id,
+      quoteNumber: r.quotes.quoteNumber,
+      clientId: r.quotes.clientId,
+      clientName: r.clients?.name ?? null,
+      projectId: r.quotes.projectId,
+      status: r.quotes.status,
+      depositPercent: r.quotes.depositPercent,
+      validUntil: r.quotes.validUntil,
+      createdAt: r.quotes.createdAt,
+    }));
 
     return json({ data: records, pagination: { limit, offset, total: count }, requestId });
   } catch (error) {

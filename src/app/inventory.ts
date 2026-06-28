@@ -28,6 +28,8 @@ export interface InventoryLotRecord {
   code: string;
   kind: string;
   catalogPieceId: string | null;
+  catalogPieceSku: string | null;
+  catalogPieceName: string | null;
   description: string;
   unit: string;
   initialQuantity: string;
@@ -53,6 +55,7 @@ export interface StockMovementRecord {
 export interface InventoryLotFormValues {
   code: string;
   kind: string;
+  catalogPieceId: string;
   description: string;
   unit: string;
   initialQuantity: string;
@@ -63,6 +66,7 @@ export interface InventoryLotFormValues {
 export const EMPTY_LOT_FORM: InventoryLotFormValues = {
   code: "",
   kind: "material",
+  catalogPieceId: "",
   description: "",
   unit: "pcs",
   initialQuantity: "",
@@ -99,6 +103,8 @@ export function fixtureToLotRecord(item: InventoryItem): InventoryLotRecord {
     code: item.id,
     kind: kindMap[item.category] ?? "material",
     catalogPieceId: null,
+    catalogPieceSku: null,
+    catalogPieceName: null,
     description: item.name,
     unit: item.unit,
     initialQuantity: String(item.quantity),

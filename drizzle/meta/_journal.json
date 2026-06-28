@@ -57,6 +57,20 @@
       "when": 1782572310005,
       "tag": "0007_equal_blink",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1782669972689,
+      "tag": "0008_wave0_schema_migrations",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1782740000000,
+      "tag": "0009_wave4_event_indexes",
+      "breakpoints": true
     }
   ]
 }

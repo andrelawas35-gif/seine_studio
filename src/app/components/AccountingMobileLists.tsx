@@ -1,5 +1,5 @@
 import { Pencil, Trash2 } from "lucide-react";
-import type { Expense, Invoice, Quote } from "../accountingData";
+import type { Expense, Invoice, Quote } from "../accountingTypes";
 import { fmtDate, php } from "../data";
 
 const invoiceTotal = (invoice: Invoice) => invoice.lineItems.reduce((sum, line) => sum + line.amount, 0);

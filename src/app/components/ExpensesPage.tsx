@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Receipt, Plus, Search, X } from "lucide-react";
 import { apiRequest } from "../api";
 import { Combobox, type ComboboxOption } from "./ui/combobox";
+import { MasterDetail } from "./ui/master-detail";
+import { Modal } from "./Modal";
+import { useDebouncedValue } from "./ui/use-debounced-value";
 import { php } from "../data";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -85,12 +88,12 @@ export function ExpensesPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search);
   const [categoryFilter, setCategoryFilter] = useState("");
   const [cogsFilter, setCogsFilter] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<ExpenseDetail | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [mobileView, setMobileView] = useState<"list" | "detail">("list");
 
   // Create form
   const [supplierId, setSupplierId] = useState("");
@@ -106,6 +109,12 @@ export function ExpensesPage() {
   const [isCogs, setIsCogs] = useState(true);
   const [expNotes, setExpNotes] = useState("");
   const [saving, setSaving] = useState(false);
+  const [expenseProjectId, setExpenseProjectId] = useState("");
+  const [expenseEventId, setExpenseEventId] = useState("");
+  const [projectOptions, setProjectOptions] = useState<ComboboxOption[]>([]);
+  const [eventOptions, setEventOptions] = useState<ComboboxOption[]>([]);
+  const [projectOptionsLoaded, setProjectOptionsLoaded] = useState(false);
+  const [eventOptionsLoaded, setEventOptionsLoaded] = useState(false);
 
   // Edit form
   const [editing, setEditing] = useState(false);
@@ -123,7 +132,7 @@ export function ExpensesPage() {
     setError(null);
     try {
       const params = new URLSearchParams();
-      if (search) params.set("q", search);
+      if (debouncedSearch) params.set("q", debouncedSearch);
       if (categoryFilter) params.set("category", categoryFilter);
       if (cogsFilter) params.set("isCogs", cogsFilter);
       params.set("limit", "50");
@@ -137,7 +146,7 @@ export function ExpensesPage() {
     } finally {
       setLoading(false);
     }
-  }, [search, categoryFilter, cogsFilter]);
+  }, [debouncedSearch, categoryFilter, cogsFilter]);
 
   const fetchDetail = useCallback(async (id: string) => {
     if (!USE_DATABASE) return;
@@ -174,6 +183,40 @@ export function ExpensesPage() {
     if (showCreate) void fetchSuppliers();
   }, [showCreate, fetchSuppliers]);
 
+  // Auto-set COGS based on category (only if user hasn't manually toggled)
+  const cogsCategories = new Set(["materials", "stones", "findings", "packaging", "labor"]);
+  const cogsManuallySet = useRef(false);
+  useEffect(() => {
+    if (!cogsManuallySet.current) {
+      setIsCogs(cogsCategories.has(category));
+    }
+  }, [category]);
+
+  // Load project/event options for pickers (eager on create open)
+  const loadProjectOptions = useCallback(async () => {
+    if (projectOptionsLoaded) return;
+    try {
+      const result = await apiRequest<{ data: Array<{ id: string; projectNumber: string; title: string }> }>("/api/projects?limit=50");
+      setProjectOptions((result.data || []).map((p) => ({ value: p.id, label: `${p.projectNumber} — ${p.title}` })));
+      setProjectOptionsLoaded(true);
+    } catch { /* ignore */ }
+  }, [projectOptionsLoaded]);
+  const loadEventOptions = useCallback(async () => {
+    if (eventOptionsLoaded) return;
+    try {
+      const result = await apiRequest<{ data: Array<{ id: string; name: string; startsAt: string }> }>("/api/events?limit=50");
+      setEventOptions((result.data || []).map((e) => ({ value: e.id, label: e.name })));
+      setEventOptionsLoaded(true);
+    } catch { /* ignore */ }
+  }, [eventOptionsLoaded]);
+
+  useEffect(() => {
+    if (showCreate) {
+      void loadProjectOptions();
+      void loadEventOptions();
+    }
+  }, [showCreate, loadProjectOptions, loadEventOptions]);
+
   // ── Create handler ───────────────────────────────────────────────────────
 
   const handleCreate = async () => {
@@ -208,6 +251,8 @@ export function ExpensesPage() {
         method: "POST",
         body: JSON.stringify({
           supplierId: sid || undefined,
+          projectId: expenseProjectId || undefined,
+          eventId: expenseEventId || undefined,
           category,
           description: description.trim(),
           amountCents: Math.round(parseFloat(amount) * 100),
@@ -264,6 +309,8 @@ export function ExpensesPage() {
     setIncurredAt(new Date().toISOString().slice(0, 10));
     setIsCogs(true);
     setExpNotes("");
+    setExpenseProjectId("");
+    setExpenseEventId("");
   };
 
   const startEdit = () => {
@@ -305,411 +352,207 @@ export function ExpensesPage() {
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 sm:px-5 py-4 border-b border-border bg-card">
-        <p className="text-[11px] uppercase tracking-[0.22em] text-accent">
-          Expenses
-        </p>
-        <button
-          type="button"
-          onClick={() => {
-            void fetchSuppliers();
-            setShowCreate(true);
-          }}
-          className="inline-flex items-center gap-1.5 min-h-9 px-3 border border-border bg-card text-[12px] hover:border-accent/40 transition-colors"
-        >
-          <Plus size={13} />
-          Log expense
-        </button>
-      </div>
-
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-2 px-4 sm:px-5 py-3 border-b border-border bg-card">
-        <div className="relative flex-1 min-w-[140px] max-w-[280px]">
-          <Search
-            size={13}
-            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
-          />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search expenses…"
-            className="w-full min-h-9 pl-8 pr-3 border border-border bg-card text-[13px] outline-none focus:border-accent/40"
-          />
-        </div>
-        <select
-          value={categoryFilter}
-          onChange={(e) => setCategoryFilter(e.target.value)}
-          className="min-h-9 border border-border bg-card px-2 text-[13px] outline-none"
-        >
-          <option value="">All categories</option>
-          {CATEGORIES.map((c) => (
-            <option key={c.value} value={c.value}>
-              {c.label}
-            </option>
-          ))}
-        </select>
-        <select
-          value={cogsFilter}
-          onChange={(e) => setCogsFilter(e.target.value)}
-          className="min-h-9 border border-border bg-card px-2 text-[13px] outline-none"
-        >
-          <option value="">COGS &amp; OPEX</option>
-          <option value="true">COGS only</option>
-          <option value="false">OPEX only</option>
-        </select>
-      </div>
-
-      {/* Summary bar */}
-      <div className="flex flex-wrap items-center gap-4 px-4 sm:px-5 py-2 border-b border-border bg-muted/20 text-[12px]">
-        <span>
-          <span className="text-muted-foreground">Total: </span>
-          <span className="tabular-nums font-medium">{php(totalExpenses / 100)}</span>
-        </span>
-        <span>
-          <span className="text-muted-foreground">COGS: </span>
-          <span className="tabular-nums text-amber-700">{php(cogsTotal / 100)}</span>
-        </span>
-        <span>
-          <span className="text-muted-foreground">OPEX: </span>
-          <span className="tabular-nums text-slate-600">{php(opexTotal / 100)}</span>
-        </span>
-      </div>
-
-      {/* Content */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* List */}
-        <div
-          className={`${selectedId && mobileView === "detail" ? "hidden" : "flex"} md:flex flex-col w-full md:w-80 lg:w-96 border-r border-border overflow-y-auto`}
-        >
-          {loading && (
-            <p className="p-4 text-[12px] text-muted-foreground">Loading…</p>
-          )}
-          {error && (
-            <p className="p-4 text-[12px] text-destructive">{error}</p>
-          )}
-          {!loading && !error && expenses.length === 0 && (
-            <div className="p-8 text-center">
-              <Receipt size={24} className="mx-auto text-accent/30 mb-2" />
-              <p className="text-[13px] text-muted-foreground">
-                No expenses logged
-              </p>
-            </div>
-          )}
-          {expenses.map((exp) => (
+    <>
+      <MasterDetail
+        hasSelection={!!selectedId}
+        loading={loading}
+        error={error}
+        isEmpty={!loading && !error && expenses.length === 0}
+        emptyState={
+          <div className="p-8 text-center">
+            <Receipt size={24} className="mx-auto text-accent/30 mb-2" />
+            <p className="text-[13px] text-muted-foreground">No expenses logged</p>
+          </div>
+        }
+        header={
+          <div className="flex items-center justify-between px-4 sm:px-5 py-4 border-b border-border bg-card">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-accent">Expenses</p>
             <button
-              key={exp.id}
               type="button"
-              onClick={() => {
-                setSelectedId(exp.id);
-                setMobileView("detail");
-              }}
-              className={`w-full text-left px-4 py-3 border-b border-border hover:bg-muted/30 transition-colors ${selectedId === exp.id ? "bg-accent/5 border-l-2 border-l-accent" : ""}`}
+              onClick={() => { void fetchSuppliers(); setShowCreate(true); }}
+              className="inline-flex items-center gap-1.5 min-h-9 px-3 border border-border bg-card text-[12px] hover:border-accent/40 transition-colors"
             >
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-[13px] font-medium text-foreground truncate">
-                  {exp.description}
-                </p>
-                <span
-                  className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium border rounded ${CATEGORY_STYLES[exp.category] || "bg-stone-100 text-stone-600 border-stone-200"}`}
-                >
-                  {CATEGORY_LABELS[exp.category] || exp.category}
-                </span>
-              </div>
-              <div className="flex items-center justify-between mt-1">
-                <p className="text-[13px] tabular-nums font-medium">
-                  {php(exp.amountCents / 100)}
-                </p>
-                <div className="flex items-center gap-2">
-                  {exp.isCogs && (
-                    <span className="text-[10px] text-amber-700 bg-amber-50 px-1 rounded">
-                      COGS
-                    </span>
-                  )}
-                  <span className="text-[10px] text-muted-foreground font-mono">
-                    {new Date(exp.incurredAt).toLocaleDateString("en-PH", {
-                      month: "short",
-                      day: "numeric",
-                    })}
-                  </span>
-                </div>
-              </div>
-              {exp.supplierName && (
-                <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
-                  {exp.supplierName}
-                </p>
-              )}
+              <Plus size={13} /> Log expense
             </button>
-          ))}
-        </div>
-
-        {/* Detail */}
-        <div
-          className={`${mobileView === "list" ? "hidden" : "flex"} md:flex flex-1 flex-col overflow-y-auto`}
-        >
-          {!selectedId && (
-            <div className="flex-1 flex items-center justify-center text-muted-foreground">
-              <p className="text-[13px]">
-                Select an expense or log a new one
-              </p>
+          </div>
+        }
+        toolbar={
+          <>
+            <div className="relative flex-1 min-w-[140px] max-w-[280px]">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search expenses…" className="w-full min-h-9 pl-8 pr-3 border border-border bg-card text-[13px] outline-none focus:border-accent/40" />
             </div>
-          )}
-
-          {selectedId && detail && !editing && (
-            <div className="flex-1 overflow-y-auto">
+            <Combobox options={[{ value: "", label: "All categories" }, ...CATEGORIES]} value={categoryFilter} onValueChange={setCategoryFilter} placeholder="Filter category…" searchPlaceholder="Search category…" aria-label="Filter by category" />
+            <Combobox options={[{ value: "", label: "COGS & OPEX" }, { value: "true", label: "COGS only" }, { value: "false", label: "OPEX only" }]} value={cogsFilter} onValueChange={setCogsFilter} placeholder="COGS & OPEX" searchPlaceholder="Filter…" aria-label="Filter by COGS/OPEX" />
+          </>
+        }
+        belowToolbar={
+          <div className="flex flex-wrap items-center gap-4 px-4 sm:px-5 py-2 border-b border-border bg-muted/20 text-[12px]">
+            <span><span className="text-muted-foreground">Total: </span><span className="tabular-nums font-medium">{php(totalExpenses / 100)}</span></span>
+            <span><span className="text-muted-foreground">COGS: </span><span className="tabular-nums text-amber-700">{php(cogsTotal / 100)}</span></span>
+            <span><span className="text-muted-foreground">OPEX: </span><span className="tabular-nums text-slate-600">{php(opexTotal / 100)}</span></span>
+          </div>
+        }
+        sidebar={
+          <>
+            {expenses.map((exp) => (
               <button
+                key={exp.id}
                 type="button"
-                onClick={() => setMobileView("list")}
-                className="md:hidden flex items-center gap-1 px-4 py-2 text-[12px] text-accent border-b border-border"
+                onClick={() => { setSelectedId(exp.id); }}
+                className={`w-full text-left px-4 py-3 border-b border-border hover:bg-muted/30 transition-colors ${selectedId === exp.id ? "bg-accent/5 border-l-2 border-l-accent" : ""}`}
               >
-                ← Back to list
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[13px] font-medium text-foreground truncate">{exp.description}</p>
+                  <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium border rounded ${CATEGORY_STYLES[exp.category] || "bg-stone-100 text-stone-600 border-stone-200"}`}>{CATEGORY_LABELS[exp.category] || exp.category}</span>
+                </div>
+                <div className="flex items-center justify-between mt-1">
+                  <p className="text-[13px] tabular-nums font-medium">{php(exp.amountCents / 100)}</p>
+                  <div className="flex items-center gap-2">
+                    {exp.isCogs && <span className="text-[10px] text-amber-700 bg-amber-50 px-1 rounded">COGS</span>}
+                    <span className="text-[10px] text-muted-foreground font-mono">{new Date(exp.incurredAt).toLocaleDateString("en-PH", { month: "short", day: "numeric" })}</span>
+                  </div>
+                </div>
+                {exp.supplierName && <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{exp.supplierName}</p>}
               </button>
-
-              {/* Info bar */}
-              <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-border bg-card">
-                <div>
-                  <p className="text-[13px] font-medium">{detail.description}</p>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span
-                      className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium border rounded ${CATEGORY_STYLES[detail.category] || ""}`}
-                    >
-                      {CATEGORY_LABELS[detail.category] || detail.category}
-                    </span>
-                    {detail.isCogs && (
-                      <span className="text-[10px] text-amber-700 bg-amber-50 px-1 rounded">
-                        COGS
-                      </span>
-                    )}
-                    {!detail.isCogs && (
-                      <span className="text-[10px] text-slate-600 bg-slate-50 px-1 rounded">
-                        OPEX
-                      </span>
-                    )}
+            ))}
+          </>
+        }
+        detail={
+          detail ? (
+            editing ? (
+              <div className="flex-1 overflow-y-auto">
+                <div className="px-4 sm:px-5 py-4 space-y-4">
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-accent">Edit expense</p>
+                  <label className="block">
+                    <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Category</span>
+                    <Combobox options={CATEGORIES} value={editCategory} onValueChange={setEditCategory} placeholder="Select category…" searchPlaceholder="Search category…" aria-label="Edit expense category" />
+                  </label>
+                  <label className="block">
+                    <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Description</span>
+                    <input value={editDescription} onChange={(e) => setEditDescription(e.target.value)} className="mt-1 w-full min-h-9 border border-border bg-card px-3 text-[13px] outline-none focus:border-accent/40" />
+                  </label>
+                  <label className="block">
+                    <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Amount (PHP)</span>
+                    <input type="number" step="0.01" min="0" value={editAmount} onChange={(e) => setEditAmount(e.target.value)} className="mt-1 w-full min-h-9 border border-border bg-card px-3 text-[13px] outline-none focus:border-accent/40 tabular-nums" inputMode="decimal" />
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" checked={editIsCogs} onChange={(e) => setEditIsCogs(e.target.checked)} className="accent-accent" />
+                    <span className="text-[13px]">Cost of goods sold (COGS)</span>
+                  </label>
+                  <label className="block">
+                    <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Notes</span>
+                    <textarea value={editNotes} onChange={(e) => setEditNotes(e.target.value)} rows={3} className="mt-1 w-full border border-border bg-card px-3 py-2 text-[13px] outline-none focus:border-accent/40 resize-none" />
+                  </label>
+                  {error && <p className="text-[12px] text-destructive">{error}</p>}
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={handleUpdate} disabled={saving} className="min-h-9 px-4 bg-accent text-white text-[12px] hover:bg-accent-strong transition-colors disabled:opacity-50">{saving ? "Saving…" : "Save changes"}</button>
+                    <button type="button" onClick={() => setEditing(false)} className="min-h-9 px-3 border border-border text-[12px] hover:border-accent/40 transition-colors">Cancel</button>
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={startEdit}
-                    className="min-h-8 px-3 border border-border text-[12px] hover:border-accent/40 transition-colors"
-                  >
-                    Edit
-                  </button>
-                  <span className="text-[15px] tabular-nums font-medium">
-                    {php(detail.amountCents / 100)}
-                  </span>
                 </div>
               </div>
-
-              {/* Detail fields */}
-              <div className="px-4 sm:px-5 py-4 space-y-3">
-                {detail.supplierName && (
+            ) : (
+              <div className="flex-1 overflow-y-auto">
+                {/* Info bar */}
+                <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-border bg-card">
                   <div>
-                    <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
-                      Supplier
-                    </p>
-                    <p className="text-[13px] mt-0.5">{detail.supplierName}</p>
+                    <p className="text-[13px] font-medium">{detail.description}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium border rounded ${CATEGORY_STYLES[detail.category] || ""}`}>{CATEGORY_LABELS[detail.category] || detail.category}</span>
+                      {detail.isCogs && <span className="text-[10px] text-amber-700 bg-amber-50 px-1 rounded">COGS</span>}
+                      {!detail.isCogs && <span className="text-[10px] text-slate-600 bg-slate-50 px-1 rounded">OPEX</span>}
+                    </div>
                   </div>
-                )}
-                <div className="flex flex-wrap gap-6">
-                  <div>
-                    <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
-                      Date
-                    </p>
-                    <p className="text-[13px] mt-0.5">
-                      {new Date(detail.incurredAt).toLocaleDateString("en-PH", {
-                        year: "numeric",
-                        month: "long",
-                        day: "numeric",
-                      })}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
-                      Method
-                    </p>
-                    <p className="text-[13px] mt-0.5">
-                      {METHOD_LABELS[detail.method] || detail.method}
-                    </p>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={startEdit} className="min-h-8 px-3 border border-border text-[12px] hover:border-accent/40 transition-colors">Edit</button>
+                    <span className="text-[15px] tabular-nums font-medium">{php(detail.amountCents / 100)}</span>
                   </div>
                 </div>
-                {detail.notes && (
-                  <div>
-                    <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
-                      Notes
-                    </p>
-                    <p className="text-[13px] mt-0.5 text-muted-foreground">
-                      {detail.notes}
-                    </p>
-                  </div>
-                )}
-              </div>
 
-              {/* Activity timeline */}
-              {detail.activity && (detail.activity as unknown[]).length > 0 && (
-                <div className="px-4 sm:px-5 py-3 border-t border-border">
-                  <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-2">
-                    Activity
-                  </p>
-                  <div className="space-y-2">
-                    {(detail.activity as Array<{ id: string; action: string; summary: string; createdAt: string }>).map(
-                      (a) => (
-                        <div
-                          key={a.id}
-                          className="flex items-start gap-2 text-[12px]"
-                        >
-                          <span className="text-muted-foreground shrink-0 mt-0.5">
-                            {new Date(a.createdAt).toLocaleDateString("en-PH", {
-                              month: "short",
-                              day: "numeric",
-                            })}
-                          </span>
+                {/* Detail fields */}
+                <div className="px-4 sm:px-5 py-4 space-y-3">
+                  {detail.supplierName && (
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Supplier</p>
+                      <p className="text-[13px] mt-0.5">{detail.supplierName}</p>
+                    </div>
+                  )}
+                  <div className="flex flex-wrap gap-6">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Date</p>
+                      <p className="text-[13px] mt-0.5">{new Date(detail.incurredAt).toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" })}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Method</p>
+                      <p className="text-[13px] mt-0.5">{METHOD_LABELS[detail.method] || detail.method}</p>
+                    </div>
+                  </div>
+                  {detail.notes && (
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Notes</p>
+                      <p className="text-[13px] mt-0.5 text-muted-foreground">{detail.notes}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Activity timeline */}
+                {detail.activity && (detail.activity as unknown[]).length > 0 && (
+                  <div className="px-4 sm:px-5 py-3 border-t border-border">
+                    <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-2">Activity</p>
+                    <div className="space-y-2">
+                      {(detail.activity as Array<{ id: string; action: string; summary: string; createdAt: string }>).map((a) => (
+                        <div key={a.id} className="flex items-start gap-2 text-[12px]">
+                          <span className="text-muted-foreground shrink-0 mt-0.5">{new Date(a.createdAt).toLocaleDateString("en-PH", { month: "short", day: "numeric" })}</span>
                           <span>{a.summary || a.action}</span>
                         </div>
-                      ),
-                    )}
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Edit mode */}
-          {selectedId && detail && editing && (
-            <div className="flex-1 overflow-y-auto">
-              <button
-                type="button"
-                onClick={() => setEditing(false)}
-                className="md:hidden flex items-center gap-1 px-4 py-2 text-[12px] text-accent border-b border-border"
-              >
-                ← Cancel edit
-              </button>
-
-              <div className="px-4 sm:px-5 py-4 space-y-4">
-                <p className="text-[11px] uppercase tracking-[0.22em] text-accent">
-                  Edit expense
-                </p>
-
-                <label className="block">
-                  <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
-                    Category
-                  </span>
-                  <select
-                    value={editCategory}
-                    onChange={(e) => setEditCategory(e.target.value)}
-                    className="mt-1 w-full min-h-9 border border-border bg-card px-3 text-[13px] outline-none focus:border-accent/40"
-                  >
-                    {CATEGORIES.map((c) => (
-                      <option key={c.value} value={c.value}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="block">
-                  <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
-                    Description
-                  </span>
-                  <input
-                    value={editDescription}
-                    onChange={(e) => setEditDescription(e.target.value)}
-                    className="mt-1 w-full min-h-9 border border-border bg-card px-3 text-[13px] outline-none focus:border-accent/40"
-                  />
-                </label>
-
-                <label className="block">
-                  <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
-                    Amount (PHP)
-                  </span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={editAmount}
-                    onChange={(e) => setEditAmount(e.target.value)}
-                    className="mt-1 w-full min-h-9 border border-border bg-card px-3 text-[13px] outline-none focus:border-accent/40 tabular-nums"
-                    inputMode="decimal"
-                  />
-                </label>
-
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={editIsCogs}
-                    onChange={(e) => setEditIsCogs(e.target.checked)}
-                    className="accent-accent"
-                  />
-                  <span className="text-[13px]">Cost of goods sold (COGS)</span>
-                </label>
-
-                <label className="block">
-                  <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
-                    Notes
-                  </span>
-                  <textarea
-                    value={editNotes}
-                    onChange={(e) => setEditNotes(e.target.value)}
-                    rows={3}
-                    className="mt-1 w-full border border-border bg-card px-3 py-2 text-[13px] outline-none focus:border-accent/40 resize-none"
-                  />
-                </label>
-
-                {error && (
-                  <p className="text-[12px] text-destructive">{error}</p>
                 )}
-
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleUpdate}
-                    disabled={saving}
-                    className="min-h-9 px-4 bg-accent text-white text-[12px] hover:bg-accent-strong transition-colors disabled:opacity-50"
-                  >
-                    {saving ? "Saving…" : "Save changes"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEditing(false)}
-                    className="min-h-9 px-3 border border-border text-[12px] hover:border-accent/40 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
               </div>
-            </div>
-          )}
-        </div>
-      </div>
+            )
+          ) : null
+        }
+        noSelectionPlaceholder={
+          <p className="text-[13px]">Select an expense or log a new one</p>
+        }
+      />
 
       {/* ── Create modal ─────────────────────────────────────────────────── */}
       {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20">
-          <div className="w-full max-w-md bg-card border border-border rounded shadow-lg max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-              <p className="text-[12px] font-medium">Log expense</p>
+        <Modal
+          open={showCreate}
+          onClose={() => { setShowCreate(false); resetCreateForm(); setError(null); }}
+          title="Log expense"
+          width={480}
+          footer={
+            <>
               <button
                 type="button"
-                onClick={() => {
-                  setShowCreate(false);
-                  resetCreateForm();
-                  setError(null);
-                }}
-                className="p-1 hover:bg-muted/50"
+                onClick={handleCreate}
+                disabled={saving || !description || !amount}
+                className="min-h-9 px-4 bg-accent text-white text-[12px] hover:bg-accent-strong transition-colors disabled:opacity-50"
               >
-                <X size={14} />
+                {saving ? "Saving…" : "Log expense"}
               </button>
-            </div>
-
-            <div className="px-4 py-4 space-y-4">
+              <button
+                type="button"
+                onClick={() => { setShowCreate(false); resetCreateForm(); setError(null); }}
+                className="min-h-9 px-3 border border-border text-[12px] hover:border-accent/40 transition-colors"
+              >
+                Cancel
+              </button>
+            </>
+          }
+        >
+          <div className="space-y-5">
               {/* Supplier */}
               <div>
-                <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+                <span className="text-[12px] uppercase tracking-[0.14em] text-muted-foreground">
                   Supplier
                 </span>
                 {!showNewSupplier ? (
-                  <div className="mt-1 flex items-center gap-2">
+                  <div className="mt-1.5 flex items-center gap-2">
                     <div className="flex-1">
                       <Combobox
                         options={supplierOptions}
@@ -731,7 +574,7 @@ export function ExpensesPage() {
                     </button>
                   </div>
                 ) : (
-                  <div className="mt-1 flex items-center gap-2">
+                  <div className="mt-1.5 flex items-center gap-2">
                     <input
                       value={newSupplierName}
                       onChange={(e) => setNewSupplierName(e.target.value)}
@@ -755,13 +598,13 @@ export function ExpensesPage() {
 
               {/* Category */}
               <label className="block">
-                <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+                <span className="text-[12px] uppercase tracking-[0.14em] text-muted-foreground">
                   Category
                 </span>
                 <select
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
-                  className="mt-1 w-full min-h-9 border border-border bg-card px-3 text-[13px] outline-none focus:border-accent/40"
+                  className="mt-1.5 w-full min-h-10 border border-border bg-card px-3 text-[13px] outline-none focus:border-accent/40"
                 >
                   {CATEGORIES.map((c) => (
                     <option key={c.value} value={c.value}>
@@ -773,21 +616,21 @@ export function ExpensesPage() {
 
               {/* Description */}
               <label className="block">
-                <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+                <span className="text-[12px] uppercase tracking-[0.14em] text-muted-foreground">
                   Description *
                 </span>
                 <input
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="e.g. 18K Gold Wire Restock"
-                  className="mt-1 w-full min-h-9 border border-border bg-card px-3 text-[13px] outline-none focus:border-accent/40"
+                  className="mt-1.5 w-full min-h-10 border border-border bg-card px-3 text-[13px] outline-none focus:border-accent/40"
                 />
               </label>
 
               {/* Amount + Method */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-4">
                 <label className="block">
-                  <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+                  <span className="text-[12px] uppercase tracking-[0.14em] text-muted-foreground">
                     Amount (PHP) *
                   </span>
                   <input
@@ -797,18 +640,18 @@ export function ExpensesPage() {
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
                     placeholder="0.00"
-                    className="mt-1 w-full min-h-9 border border-border bg-card px-3 text-[13px] outline-none focus:border-accent/40 tabular-nums"
+                    className="mt-1.5 w-full min-h-10 border border-border bg-card px-3 text-[13px] outline-none focus:border-accent/40 tabular-nums"
                     inputMode="decimal"
                   />
                 </label>
                 <label className="block">
-                  <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+                  <span className="text-[12px] uppercase tracking-[0.14em] text-muted-foreground">
                     Method
                   </span>
                   <select
                     value={method}
                     onChange={(e) => setMethod(e.target.value)}
-                    className="mt-1 w-full min-h-9 border border-border bg-card px-3 text-[13px] outline-none focus:border-accent/40"
+                    className="mt-1.5 w-full min-h-10 border border-border bg-card px-3 text-[13px] outline-none focus:border-accent/40"
                   >
                     {Object.entries(METHOD_LABELS).map(([k, v]) => (
                       <option key={k} value={k}>
@@ -820,71 +663,99 @@ export function ExpensesPage() {
               </div>
 
               {/* Date + COGS */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-4">
                 <label className="block">
-                  <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+                  <span className="text-[12px] uppercase tracking-[0.14em] text-muted-foreground">
                     Date
                   </span>
                   <input
                     type="date"
                     value={incurredAt}
                     onChange={(e) => setIncurredAt(e.target.value)}
-                    className="mt-1 w-full min-h-9 border border-border bg-card px-3 text-[13px] outline-none focus:border-accent/40"
+                    className="mt-1.5 w-full min-h-10 border border-border bg-card px-3 text-[13px] outline-none focus:border-accent/40"
                   />
                 </label>
-                <label className="flex items-center gap-2 mt-5">
-                  <input
-                    type="checkbox"
-                    checked={isCogs}
-                    onChange={(e) => setIsCogs(e.target.checked)}
-                    className="accent-accent"
-                  />
-                  <span className="text-[13px]">COGS</span>
+                <label className="block">
+                  <span className="text-[12px] uppercase tracking-[0.14em] text-muted-foreground">Type</span>
+                  <select
+                    value={isCogs ? "cogs" : "opex"}
+                    onChange={(e) => {
+                      cogsManuallySet.current = true;
+                      setIsCogs(e.target.value === "cogs");
+                    }}
+                    className="mt-1.5 w-full min-h-10 border border-border bg-card px-3 text-[13px] outline-none focus:border-accent/40"
+                  >
+                    <option value="cogs">COGS — Cost of Goods Sold</option>
+                    <option value="opex">OPEX — Operating Expense</option>
+                  </select>
+                  <p className="mt-1 text-[10px] leading-[1.4] text-muted-foreground">
+                    {isCogs
+                      ? "Direct cost of goods sold — affects gross margin."
+                      : "Operating expense — overhead, not tied to a sale."}
+                  </p>
                 </label>
               </div>
 
+              {/* Project picker */}
+              <label className="block">
+                <span className="text-[12px] uppercase tracking-[0.14em] text-muted-foreground">
+                  Project (optional)
+                </span>
+                <div className="mt-1.5">
+                  <Combobox
+                    options={projectOptions}
+                    value={expenseProjectId}
+                    onValueChange={setExpenseProjectId}
+                    placeholder="Not project-specific…"
+                    searchPlaceholder="Search projects…"
+                    aria-label="Link to project"
+                  />
+                </div>
+                <p className="mt-1 text-[10px] leading-[1.4] text-muted-foreground">
+                  Link this expense to a project for per-project margin reporting.
+                </p>
+              </label>
+
+              {/* Event picker */}
+              <label className="block">
+                <span className="text-[12px] uppercase tracking-[0.14em] text-muted-foreground">
+                  Event (optional)
+                </span>
+                <div className="mt-1.5">
+                  <Combobox
+                    options={eventOptions}
+                    value={expenseEventId}
+                    onValueChange={setExpenseEventId}
+                    placeholder="Not event-specific…"
+                    searchPlaceholder="Search events…"
+                    aria-label="Link to event"
+                  />
+                </div>
+                <p className="mt-1 text-[10px] leading-[1.4] text-muted-foreground">
+                  Link this expense to an event for event P&L reporting.
+                </p>
+              </label>
+
               {/* Notes */}
               <label className="block">
-                <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+                <span className="text-[12px] uppercase tracking-[0.14em] text-muted-foreground">
                   Notes
                 </span>
                 <textarea
                   value={expNotes}
                   onChange={(e) => setExpNotes(e.target.value)}
                   rows={2}
-                  className="mt-1 w-full border border-border bg-card px-3 py-2 text-[13px] outline-none focus:border-accent/40 resize-none"
+                  className="mt-1.5 w-full border border-border bg-card px-3 py-2 text-[13px] outline-none focus:border-accent/40 resize-none"
                 />
               </label>
 
               {error && (
                 <p className="text-[12px] text-destructive">{error}</p>
               )}
-
-              <div className="flex items-center gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={handleCreate}
-                  disabled={saving || !description || !amount}
-                  className="min-h-9 px-4 bg-accent text-white text-[12px] hover:bg-accent-strong transition-colors disabled:opacity-50"
-                >
-                  {saving ? "Saving…" : "Log expense"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowCreate(false);
-                    resetCreateForm();
-                    setError(null);
-                  }}
-                  className="min-h-9 px-3 border border-border text-[12px] hover:border-accent/40 transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
             </div>
-          </div>
-        </div>
+
+        </Modal>
       )}
-    </div>
+    </>
   );
 }

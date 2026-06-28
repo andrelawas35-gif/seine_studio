@@ -71,12 +71,22 @@ export interface EventStockSuggestion {
   costCents: number | null;
 }
 
+export interface EventLinkedProject {
+  id: string;
+  projectNumber: string;
+  title: string;
+  stage: string;
+  clientName: string;
+  targetDate: string | null;
+}
+
 export interface EventDetail {
   event: EventRecord;
   tasks: EventTaskRecord[];
   budgetLines: EventBudgetLineRecord[];
   allocations: EventAllocationRecord[];
   stockSuggestions: EventStockSuggestion[];
+  linkedProjects: EventLinkedProject[];
 }
 
 export interface EventFormValues {

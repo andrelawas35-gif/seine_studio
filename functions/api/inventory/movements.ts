@@ -32,6 +32,7 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         fromLocationId: input.fromLocationId,
         toLocationId: input.toLocationId,
         projectId: input.projectId,
+        eventId: input.eventId,
         reason: input.reason,
         createdBy: user.id,
       }).returning(),

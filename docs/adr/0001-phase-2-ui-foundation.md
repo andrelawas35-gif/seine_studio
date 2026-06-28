@@ -46,7 +46,13 @@ Build the UI foundation **before** Phase 2 features, so Phase 2 inherits it.
 
 3. **`ResponsiveTable` primitive.** A single component that renders a calm table
    ≥768px and collapses to summary cards below it (principle line 102). All
-   Phase 2 financial lists render through it.
+   **summary tables** — side-by-side data for comparison (P&L rows, dashboard
+   recents, cost-line grids) — render through it. **Record indexes** — browsable
+   master-detail lists of domain objects (invoices, quotes, expenses) — are a
+   separate interaction pattern; they do not use `ResponsiveTable`.
+   *(Amended 2026-06-28: the original "All Phase 2 financial lists" was
+   overloaded — it conflated two distinct layout patterns. This revision
+   scopes ResponsiveTable to summary tables only.)*
 
 4. **Light-only at launch.** Remove `.dark` theme switching so the cold-gray
    shell can never appear. A properly authored warm-charcoal "evening Louvre"

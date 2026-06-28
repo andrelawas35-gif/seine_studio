@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { CalendarDays, Check, ChevronRight, MapPin, PackageCheck, Plus, Target, TrendingUp, DollarSign } from "lucide-react";
+import { CalendarDays, Check, ChevronRight, DollarSign, FolderOpen, MapPin, PackageCheck, Plus, ShoppingBag, Target, TrendingUp } from "lucide-react";
 import { apiRequest, ApiError } from "../api";
 import {
   EMPTY_EVENT_FORM,
@@ -13,7 +13,10 @@ import {
   type EventRecord,
   type EventTaskRecord,
 } from "../events";
-import { Btn, Field, FormRow, Input, Modal, Select, Textarea } from "./Modal";
+import { STAGE_DOT_COLOR, STAGE_LABELS, type ProjectStage } from "../projects";
+import { Btn, Field, FormRow, Input, Modal, Textarea } from "./Modal";
+import { Combobox } from "./ui/combobox";
+import { RecordSaleModal } from "./ui/record-sale-modal";
 import { useToast } from "./Toast";
 
 const USE_DATABASE = import.meta.env.VITE_DATA_MODE === "api";
@@ -65,7 +68,7 @@ function EventForm({
     }
   }
   return (
-    <form onSubmit={submit} className="space-y-4">
+    <form onSubmit={submit} className="space-y-5">
       {error ? (
         <p role="alert" className="border border-red-200 bg-red-50 p-3 text-[12px] text-red-700">
           {error}
@@ -82,12 +85,19 @@ function EventForm({
       </Field>
       <FormRow>
         <Field label="Type">
-          <Select value={values.type} onChange={(e) => set("type", e.target.value)}>
-            <option>Pop-up</option>
-            <option>Market</option>
-            <option>Trunk show</option>
-            <option>Private appointment</option>
-          </Select>
+          <Combobox
+            options={[
+              { value: "Pop-up", label: "Pop-up" },
+              { value: "Market", label: "Market" },
+              { value: "Trunk show", label: "Trunk show" },
+              { value: "Private appointment", label: "Private appointment" },
+            ]}
+            value={values.type}
+            onValueChange={(v) => set("type", v)}
+            placeholder="Select type…"
+            searchPlaceholder="Search type…"
+            aria-label="Event type"
+          />
         </Field>
         <Field label="Organizer">
           <Input value={values.organizer} onChange={(e) => set("organizer", e.target.value)} />
@@ -180,6 +190,7 @@ export function EventsPage() {
   const [taskOpen, setTaskOpen] = useState(false);
   const [budgetOpen, setBudgetOpen] = useState(false);
   const [allocationLotId, setAllocationLotId] = useState<string | null>(null);
+  const [saleOpen, setSaleOpen] = useState(false);
 
   useEffect(() => {
     if (!USE_DATABASE) return;
@@ -272,6 +283,7 @@ export function EventsPage() {
           event,
           allocations: [],
           budgetLines: [],
+          linkedProjects: [],
           tasks: DEFAULT_EVENT_TASKS.map((task) => ({
             ...task,
             id: crypto.randomUUID(),
@@ -475,7 +487,7 @@ export function EventsPage() {
                 </button>
               ))}
             </nav>
-            {tab === "overview" ? <Overview detail={detail} onStock={() => setTab("stock")} /> : null}
+            {tab === "overview" ? <Overview detail={detail} onStock={() => setTab("stock")} onRecordSale={() => setSaleOpen(true)} /> : null}
             {tab === "stock" ? <Stock detail={detail} onReserve={setAllocationLotId} /> : null}
             {tab === "checklist" ? (
               <Checklist tasks={detail.tasks} onToggle={toggleTask} onAdd={() => setTaskOpen(true)} />
@@ -508,6 +520,16 @@ export function EventsPage() {
         locations={locations}
         buffer={detail?.event.studioBufferPercent ?? 10}
         onSave={reserveStock}
+      />
+      <RecordSaleModal
+        open={saleOpen}
+        onClose={() => setSaleOpen(false)}
+        eventId={detail?.event.id ?? ""}
+        suggestions={detail?.stockSuggestions ?? []}
+        onSold={() => {
+          setSaleOpen(false);
+          if (selectedId) void loadDetail(selectedId);
+        }}
       />
     </div>
   );
@@ -558,7 +580,7 @@ function EventHeader({ detail, progress }: { detail: EventDetail; progress: numb
     </div>
   );
 }
-function Overview({ detail, onStock }: { detail: EventDetail; onStock: () => void }) {
+function Overview({ detail, onStock, onRecordSale }: { detail: EventDetail; onStock: () => void; onRecordSale: () => void }) {
   return (
     <div className="grid gap-4 md:grid-cols-2">
       <div className="border border-border bg-card p-5">
@@ -581,12 +603,67 @@ function Overview({ detail, onStock }: { detail: EventDetail; onStock: () => voi
           Review stock pull
         </button>
       </div>
+      <div className="border border-border bg-card p-5">
+        <DollarSign size={16} className="text-accent" />
+        <h3 className="mt-3 font-serif text-base">Record a sale</h3>
+        <p className="mt-2 text-[12px] leading-5 text-muted-foreground">
+          Sell finished pieces at the event. Creates an invoice, records stock-out, and logs payment in one step.
+        </p>
+        <button
+          onClick={onRecordSale}
+          className="mt-5 flex min-h-11 items-center gap-2 bg-foreground px-4 text-[11px] font-medium uppercase tracking-wider text-background"
+        >
+          <ShoppingBag size={13} />
+          Record sale
+        </button>
+      </div>
+      {/* Linked Projects */}
+      {detail.linkedProjects && detail.linkedProjects.length > 0 && (
+        <div className="md:col-span-2 border border-border bg-card p-5">
+          <FolderOpen size={16} className="text-accent" />
+          <h3 className="mt-3 font-serif text-base">Linked Projects</h3>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Commissions originated at this event
+          </p>
+          <div className="mt-3 space-y-1">
+            {detail.linkedProjects.map((p) => (
+              <div
+                key={p.id}
+                className="flex items-center gap-3 px-3 py-2 border border-border text-[13px]"
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${STAGE_DOT_COLOR[p.stage as ProjectStage] ?? "bg-gray-400"}`}
+                />
+                <span className="font-mono text-[11px] tracking-wide text-muted-foreground">
+                  {p.projectNumber}
+                </span>
+                <span className="flex-1 truncate">{p.title}</span>
+                <span className="text-[11px] text-muted-foreground">
+                  {p.clientName}
+                </span>
+                <span className="text-[10px] px-1.5 py-px border border-border text-muted-foreground">
+                  {STAGE_LABELS[p.stage as ProjectStage] ?? p.stage}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 function Stock({ detail, onReserve }: { detail: EventDetail; onReserve: (id: string) => void }) {
+  const bufferPercent = detail.event.studioBufferPercent ?? 0;
   return (
     <div className="space-y-4">
+      {bufferPercent > 0 && (
+        <div className="border border-accent/30 bg-accent/5 px-5 py-3">
+          <p className="text-[11px] text-muted-foreground">
+            <span className="font-medium text-accent">{bufferPercent}% studio buffer</span> — available quantities below are reduced
+            by this buffer to keep the studio supplied during the event.
+          </p>
+        </div>
+      )}
       <ListPanel title="Reserved stock">
         {detail.allocations.length ? (
           detail.allocations.map((item) => (
@@ -608,22 +685,34 @@ function Stock({ detail, onReserve }: { detail: EventDetail; onReserve: (id: str
       </ListPanel>
       <ListPanel title="Available finished pieces">
         {detail.stockSuggestions.length ? (
-          detail.stockSuggestions.map((item) => (
-            <div key={item.id} className="flex min-h-16 items-center gap-3 border-b border-border px-5">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[11px] font-medium">{item.description}</p>
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  {item.availableQuantity} {item.unit} available
-                </p>
+          detail.stockSuggestions.map((item) => {
+            const rawQty = Number(item.availableQuantity);
+            const bufferAdjQty = Math.max(0, rawQty * (1 - bufferPercent / 100));
+            return (
+              <div key={item.id} className="flex min-h-16 items-center gap-3 border-b border-border px-5">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[11px] font-medium">{item.description}</p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    {rawQty} {item.unit} on hand
+                    {bufferPercent > 0 && (
+                      <span> · <span className="text-accent font-medium">{bufferAdjQty} {item.unit}</span> pull-able</span>
+                    )}
+                  </p>
+                  {item.retailPriceCents && item.retailPriceCents > 0 && (
+                    <p className="mt-0.5 text-[10px] text-muted-foreground">
+                      Retail: {php(item.retailPriceCents)}
+                    </p>
+                  )}
+                </div>
+                <button
+                  onClick={() => onReserve(item.id)}
+                  className="min-h-11 border border-border px-3 text-[11px] uppercase tracking-wider"
+                >
+                  Reserve
+                </button>
               </div>
-              <button
-                onClick={() => onReserve(item.id)}
-                className="min-h-11 border border-border px-3 text-[11px] uppercase tracking-wider"
-              >
-                Reserve
-              </button>
-            </div>
-          ))
+            );
+          })
         ) : (
           <EmptyLine text="Receive finished-piece inventory before planning a stock pull." />
         )}
@@ -748,13 +837,12 @@ function Finance({
         `/api/expenses?eventId=${eventId}&limit=200`,
       ),
       apiRequest<{ data: Array<{ totalCents: number; paidCents: number; status: string }> }>(
-        `/api/invoices?limit=200`,
+        `/api/invoices?eventId=${eventId}&limit=200`,
       ),
     ])
       .then(([expRes, invRes]) => {
         const expenses = expRes.data || [];
-        // Filter invoices linked to this event (client-side filtering since 
-        // invoices API may not support eventId filter yet)
+        // Invoices are scoped to this event server-side (via their project's eventId).
         const invoices = invRes.data || [];
         const totalExp = expenses.reduce((s, e) => s + e.amountCents, 0);
         const cogs = expenses.filter((e) => e.isCogs).reduce((s, e) => s + e.amountCents, 0);
@@ -929,12 +1017,24 @@ function QuickTextModal({
   onSave: (value: string) => Promise<void>;
 }) {
   const [value, setValue] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  // Reset on open
+  useEffect(() => {
+    if (open) {
+      setValue("");
+      setSaving(false);
+    }
+  }, [open]);
+
   return (
     <Modal open={open} onClose={onClose} title="Add checklist task">
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          void onSave(value).then(() => setValue(""));
+          if (!value.trim() || saving) return;
+          setSaving(true);
+          void onSave(value).then(() => setValue("")).finally(() => setSaving(false));
         }}
         className="space-y-4"
       >
@@ -945,7 +1045,7 @@ function QuickTextModal({
           <Btn variant="secondary" onClick={onClose}>
             Cancel
           </Btn>
-          <Btn type="submit">Add task</Btn>
+          <Btn type="submit" disabled={saving}>{saving ? "Adding…" : "Add task"}</Btn>
         </div>
       </form>
     </Modal>
@@ -963,24 +1063,38 @@ function BudgetModal({
   const [category, setCategory] = useState("Venue");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  // Reset on open
+  useEffect(() => {
+    if (open) {
+      setCategory("Venue");
+      setDescription("");
+      setAmount("");
+      setSaving(false);
+    }
+  }, [open]);
+
   return (
     <Modal open={open} onClose={onClose} title="Add planned expense">
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          void onSave(category, description, amount);
+          if (!description.trim() || !amount || saving) return;
+          setSaving(true);
+          void onSave(category, description, amount).finally(() => setSaving(false));
         }}
         className="space-y-4"
       >
         <Field label="Category">
-          <Select value={category} onChange={(e) => setCategory(e.target.value)}>
-            <option>Venue</option>
-            <option>Transport</option>
-            <option>Display</option>
-            <option>Packaging</option>
-            <option>Marketing</option>
-            <option>Other</option>
-          </Select>
+          <Combobox
+            options={["Venue", "Transport", "Display", "Packaging", "Marketing", "Other"].map(c => ({ value: c, label: c }))}
+            value={category}
+            onValueChange={setCategory}
+            placeholder="Select category…"
+            searchPlaceholder="Search category…"
+            aria-label="Budget category"
+          />
         </Field>
         <Field label="Description" required>
           <Input value={description} onChange={(e) => setDescription(e.target.value)} />
@@ -992,7 +1106,7 @@ function BudgetModal({
           <Btn variant="secondary" onClick={onClose}>
             Cancel
           </Btn>
-          <Btn type="submit">Add line</Btn>
+          <Btn type="submit" disabled={saving}>{saving ? "Adding…" : "Add line"}</Btn>
         </div>
       </form>
     </Modal>
@@ -1017,6 +1131,7 @@ function AllocationModal({
   const [source, setSource] = useState("");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const maximum = useMemo(
     () => (suggestion ? Number(suggestion.availableQuantity) * (1 - buffer / 100) : 0),
     [suggestion, buffer],
@@ -1026,6 +1141,7 @@ function AllocationModal({
       setQuantity("1");
       setSource(locations[0]?.id ?? "");
       setError(null);
+      setSaving(false);
     }
   }, [open, locations]);
   return (
@@ -1040,9 +1156,13 @@ function AllocationModal({
           e.preventDefault();
           if (!source || Number(quantity) <= 0 || Number(quantity) > maximum)
             return setError("Choose a source and a quantity within the available limit.");
-          void onSave(quantity, source, notes).catch((caught) =>
-            setError(caught instanceof Error ? caught.message : "Stock could not be reserved."),
-          );
+          if (saving) return;
+          setSaving(true);
+          void onSave(quantity, source, notes)
+            .catch((caught) =>
+              setError(caught instanceof Error ? caught.message : "Stock could not be reserved."),
+            )
+            .finally(() => setSaving(false));
         }}
         className="space-y-4"
       >
@@ -1062,14 +1182,14 @@ function AllocationModal({
           />
         </Field>
         <Field label="Source">
-          <Select value={source} onChange={(e) => setSource(e.target.value)}>
-            <option value="">Select location</option>
-            {locations.map((location) => (
-              <option key={location.id} value={location.id}>
-                {location.name}
-              </option>
-            ))}
-          </Select>
+          <Combobox
+            options={[{ value: "", label: "Select location" }, ...locations.map(l => ({ value: l.id, label: l.name }))]}
+            value={source}
+            onValueChange={setSource}
+            placeholder="Select location…"
+            searchPlaceholder="Search location…"
+            aria-label="Stock source"
+          />
         </Field>
         <Field label="Packing note">
           <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
@@ -1078,7 +1198,7 @@ function AllocationModal({
           <Btn variant="secondary" onClick={onClose}>
             Cancel
           </Btn>
-          <Btn type="submit">Confirm reservation</Btn>
+          <Btn type="submit" disabled={saving}>{saving ? "Reserving…" : "Confirm reservation"}</Btn>
         </div>
       </form>
     </Modal>

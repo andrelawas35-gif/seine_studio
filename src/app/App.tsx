@@ -5,6 +5,7 @@ import {
   FolderOpen,
   Users,
   Package,
+  LayoutGrid,
   MessageSquareText,
   Landmark,
   CalendarDays,
@@ -28,7 +29,6 @@ import { NotificationSettings } from "./components/NotificationSettings";
 import { shouldShowDailyReminder, showDailyReminder } from "./notifications";
 import { RefreshCw } from "lucide-react";
 import { OverviewPage } from "./pages/CorePages";
-import { INITIAL_CLIENTS as CLIENTS, INITIAL_INVENTORY as INVENTORY, INITIAL_PROJECTS as PROJECTS } from "./data";
 import { isAuthConfigured, useSession, signOut } from "./auth";
 import { apiRequest, ApiError } from "./api";
 import type { Page } from "./data";
@@ -67,6 +67,8 @@ const CertificatesPage = lazy(() =>
 
 const RepairsPage = lazy(() => import("./components/RepairsPage").then((module) => ({ default: module.RepairsPage })));
 
+const CatalogPage = lazy(() => import("./components/CatalogPage").then((module) => ({ default: module.CatalogPage })));
+
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
 const NAV = [
@@ -74,6 +76,7 @@ const NAV = [
   { id: "projects", label: "Projects", icon: FolderOpen },
   { id: "clients", label: "Clients", icon: Users },
   { id: "inventory", label: "Inventory", icon: Package },
+  { id: "catalog", label: "Catalog", icon: LayoutGrid },
   { id: "events", label: "Events", icon: CalendarDays },
   { id: "quotes", label: "Quotes", icon: FileText },
   { id: "invoices", label: "Invoices", icon: ReceiptText },
@@ -84,13 +87,14 @@ const NAV = [
   { id: "replies", label: "Reply Templates", icon: MessageSquareText },
 ] as const;
 
-const MOBILE_NAV = NAV.filter(({ id }) => ["overview", "projects", "inventory", "clients"].includes(id));
+const MOBILE_NAV = NAV.filter(({ id }) => ["overview", "projects", "catalog", "clients"].includes(id));
 
 const PAGE_PATH: Record<Page, string> = {
   overview: "/",
   projects: "/projects",
   clients: "/clients",
   inventory: "/inventory",
+  catalog: "/catalog",
   events: "/events",
   quotes: "/quotes",
   invoices: "/invoices",
@@ -201,7 +205,7 @@ function Sidebar({
 
 function MobileNav({ page, setPage }: { page: Page; setPage: (p: Page) => void }) {
   const [moreOpen, setMoreOpen] = useState(false);
-  const moreActive = page === "events" || page === "quotes" || page === "invoices" || page === "expenses" || page === "accounting" || page === "certificates" || page === "repairs" || page === "replies";
+  const moreActive = page === "inventory" || page === "events" || page === "quotes" || page === "invoices" || page === "expenses" || page === "accounting" || page === "certificates" || page === "repairs" || page === "replies";
 
   return (
     <>
@@ -225,7 +229,7 @@ function MobileNav({ page, setPage }: { page: Page; setPage: (p: Page) => void }
                 <X className="mx-auto" size={16} />
               </button>
             </div>
-            {NAV.filter(({ id }) => id === "events" || id === "quotes" || id === "invoices" || id === "expenses" || id === "accounting" || id === "certificates" || id === "repairs" || id === "replies").map(
+            {NAV.filter(({ id }) => id === "inventory" || id === "events" || id === "quotes" || id === "invoices" || id === "expenses" || id === "accounting" || id === "certificates" || id === "repairs" || id === "replies").map(
               ({ id, label, icon: Icon }) => (
                 <button
                   key={id}
@@ -287,6 +291,7 @@ const PAGE_TITLE: Record<Page, string> = {
   projects: "Projects",
   clients: "Clients",
   inventory: "Inventory",
+  catalog: "Catalog",
   events: "Events & Pop-ups",
   quotes: "Quotes",
   invoices: "Invoices",
@@ -481,7 +486,7 @@ export default function App() {
 
   return (
     <div
-      className="flex md:h-screen md:overflow-hidden"
+      className="flex h-dvh md:h-screen overflow-hidden"
       style={{
         fontFamily: "'DM Sans', sans-serif",
         background: "var(--background)",
@@ -491,10 +496,10 @@ export default function App() {
     >
       <PwaStatus />
       <Sidebar page={page} setPage={setPage} userName={userName} userInitials={userInitials} userRole={userRole} />
-      <div className="flex-1 flex flex-col min-w-0 md:overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <TopBar page={page} notificationCount={notifications.length} onNotificationsClick={() => setShowNotifications(true)} />
         <main
-          className="flex-1 min-w-0 overflow-x-hidden md:overflow-y-auto p-4 pb-28 md:p-7"
+          className="flex-1 min-w-0 overflow-x-hidden overflow-y-auto p-4 pb-28 md:p-7"
           style={{
             scrollbarWidth: "none",
             WebkitOverflowScrolling: "touch",
@@ -539,6 +544,18 @@ export default function App() {
               }
             />
             <Route
+              path="/catalog/:pieceId?"
+              element={
+                <Suspense
+                  fallback={
+                    <div className="h-40 animate-pulse border border-border bg-card" aria-label="Loading Catalog" />
+                  }
+                >
+                  <CatalogPage />
+                </Suspense>
+              }
+            />
+            <Route
               path="/events/:eventId?"
               element={
                 <Suspense
@@ -558,7 +575,7 @@ export default function App() {
                     <div className="h-40 animate-pulse border border-border bg-card" aria-label="Loading Accounting" />
                   }
                 >
-                  <AccountingPage projects={PROJECTS} clients={CLIENTS} inventory={INVENTORY} />
+                  <AccountingPage />
                 </Suspense>
               }
             />
@@ -573,7 +590,7 @@ export default function App() {
                     />
                   }
                 >
-                  <ReplyTemplatesPage clients={CLIENTS} projects={PROJECTS} inventory={INVENTORY} />
+                  <ReplyTemplatesPage />
                 </Suspense>
               }
             />

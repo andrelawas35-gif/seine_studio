@@ -16,6 +16,7 @@ import {
 import { INITIAL_INVENTORY, STOCK_PILL, php } from "../data";
 import { Btn, ConfirmDialog, Field, FormRow, Input, Modal, Textarea } from "./Modal";
 import { Combobox } from "./ui/combobox";
+import { PiecePicker } from "./ui/piece-picker";
 import { useToast } from "./Toast";
 import { exportCsv, exportJson, timestamp } from "../exports";
 import { useDraft } from "../useDraft";
@@ -118,21 +119,21 @@ function LotForm({
     event.preventDefault();
     setError(null);
     if (!values.description.trim()) { setError("Description is required."); return; }
-    if (!values.code.trim()) { setError("Lot code is required."); return; }
+    if (!values.code.trim()) { setError("Batch code is required."); return; }
     if (!values.initialQuantity || parseFloat(values.initialQuantity) <= 0) { setError("Quantity must be positive."); return; }
     if (!values.locationId) { setError("Select a receiving location."); return; }
     try { await onSave(values); } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not save the lot.");
+      setError(caught instanceof Error ? caught.message : "Could not save the batch.");
     }
   }
 
   return (
     <form onSubmit={submit} className="space-y-4">
-      <DraftShelf drafts={drafts} label={(draft) => (draft.values.description as string) || "Untitled inventory lot"} onLoad={(draft) => setValues(onLoadDraft(draft))} onDiscard={onDiscardDraft} />
+      <DraftShelf drafts={drafts} label={(draft) => (draft.values.description as string) || "Untitled inventory batch"} onLoad={(draft) => setValues(onLoadDraft(draft))} onDiscard={onDiscardDraft} />
       {error && <p role="alert" className="border border-red-200 bg-red-50 p-3 text-[12px] text-red-700">{error}</p>}
       <FormRow>
-        <Field label="Lot code" required>
-          <Input aria-label="Lot code" value={values.code} onChange={(e) => set("code", e.target.value)} maxLength={40} autoFocus />
+        <Field label="Batch code" required>
+          <Input aria-label="Batch code" value={values.code} onChange={(e) => set("code", e.target.value)} maxLength={40} autoFocus />
         </Field>
         <Field label="Kind" required>
           <Combobox
@@ -156,6 +157,18 @@ function LotForm({
           <Input aria-label="Unit" value={values.unit} onChange={(e) => set("unit", e.target.value)} placeholder="pcs, g, ct, m" maxLength={20} />
         </Field>
       </FormRow>
+      {values.kind === "finished_piece" && (
+        <Field label="Catalog piece" required>
+          <PiecePicker
+            value={values.catalogPieceId}
+            onValueChange={(v) => set("catalogPieceId", v)}
+            aria-label="Catalog piece"
+          />
+          <p className="mt-1 text-[10px] text-muted-foreground">
+            Link this batch to a catalog piece so it appears on the piece's 360 view and can be sold at events.
+          </p>
+        </Field>
+      )}
       <FormRow>
         <Field label="Unit cost (centavos)">
           <Input aria-label="Unit cost" type="number" min="0" value={values.unitCostCents} onChange={(e) => set("unitCostCents", e.target.value)} placeholder="e.g. 15000 = ₱150" />
@@ -174,7 +187,7 @@ function LotForm({
       <div className="flex justify-end gap-2 border-t border-border pt-4">
         <Btn variant="ghost" onClick={() => void onSaveDraft(values)} disabled={saving}>Save draft</Btn>
         <Btn variant="secondary" onClick={onCancel} disabled={saving}>Cancel</Btn>
-        <Btn type="submit" disabled={saving}>{saving ? "Saving..." : "Receive lot"}</Btn>
+        <Btn type="submit" disabled={saving}>{saving ? "Saving..." : "Receive batch"}</Btn>
       </div>
     </form>
   );
@@ -290,10 +303,10 @@ export function InventoryPage() {
   const [kindFilter, setKindFilter] = useState<string>("all");
   const [loading, setLoading] = useState(USE_DATABASE);
   const [error, setError] = useState<string | null>(null);
-  const [editor, setEditor] = useState<"new-lot" | "movement" | null>(null);
+  const [editor, setEditor] = useState<"new-batch" | "movement" | null>(null);
   const [saving, setSaving] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
-  const lotDrafts = useDraft<InventoryLotFormValues>("inventory-lot");
+  const lotDrafts = useDraft<InventoryLotFormValues>("inventory-batch");
 
   async function loadLots() {
     if (!USE_DATABASE) return;
@@ -353,7 +366,7 @@ export function InventoryPage() {
       if (USE_DATABASE) {
         if (!navigator.onLine) {
           await lotDrafts.save(values);
-          toast.info("Lot draft saved", "Receiving inventory changes stock and must be submitted while connected.");
+          toast.info("Batch draft saved", "Receiving inventory changes stock and must be submitted while connected.");
           setEditor(null);
           return;
         }
@@ -361,6 +374,7 @@ export function InventoryPage() {
           method: "POST",
           body: JSON.stringify({
             ...values,
+            catalogPieceId: values.catalogPieceId || undefined,
             unitCostCents: values.unitCostCents ? parseInt(values.unitCostCents, 10) : undefined,
           }),
         });
@@ -370,7 +384,9 @@ export function InventoryPage() {
         const lot: InventoryLotRecord = {
           ...values,
           id: `sample-${crypto.randomUUID()}`,
-          catalogPieceId: null,
+          catalogPieceId: values.catalogPieceId || null,
+          catalogPieceSku: null,
+          catalogPieceName: null,
           unitCostCents: values.unitCostCents ? parseInt(values.unitCostCents, 10) : null,
           onHandQuantity: values.initialQuantity,
           receivedAt: new Date().toISOString(),
@@ -381,7 +397,7 @@ export function InventoryPage() {
         setRecords((c) => [...c, lot]);
         navigate(`/inventory/${lot.id}`);
       }
-      toast.success("Lot received", `${values.description} added to inventory.`);
+      toast.success("Batch received", `${values.description} added to inventory.`);
       setEditor(null);
     } finally { setSaving(false); }
   }
@@ -424,7 +440,7 @@ export function InventoryPage() {
       if (USE_DATABASE) await apiRequest(`/inventory/${selected.id}`, { method: "DELETE" });
       setRecords((c) => c.filter((r) => r.id !== selected.id));
       navigate("/inventory");
-      toast.success("Lot archived", `${selected.description} removed from active inventory.`);
+      toast.success("Batch archived", `${selected.description} removed from active inventory.`);
     } catch (caught) {
       toast.error("Archive failed", caught instanceof Error ? caught.message : "Please try again.");
     }
@@ -463,8 +479,8 @@ export function InventoryPage() {
           <button type="button" onClick={() => exportJson(records, `seine-inventory-${timestamp()}.json`)} className="inline-flex min-h-11 items-center gap-2 border border-border px-3 text-[11px] uppercase tracking-wider text-muted-foreground">
             <Download size={13} /> JSON
           </button>
-          <button type="button" onClick={() => setEditor("new-lot")} className="inline-flex min-h-11 items-center justify-center gap-2 bg-foreground px-4 text-[12px] uppercase tracking-[0.16em] text-background">
-            <Plus size={13} /> Receive lot
+          <button type="button" onClick={() => setEditor("new-batch")} className="inline-flex min-h-11 items-center justify-center gap-2 bg-foreground px-4 text-[12px] uppercase tracking-[0.16em] text-background">
+            <Plus size={13} /> Receive batch
           </button>
         </div>
       </div>
@@ -491,7 +507,7 @@ export function InventoryPage() {
         <label className="flex min-h-11 flex-1 items-center gap-2 border border-border bg-background px-3 sm:max-w-xs">
           <Search size={13} className="text-muted-foreground" />
           <span className="sr-only">Search inventory</span>
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search lot or description" className="w-full bg-transparent text-[11px] text-foreground outline-none placeholder:text-muted-foreground" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search batch or description" className="w-full bg-transparent text-[11px] text-foreground outline-none placeholder:text-muted-foreground" />
         </label>
         {["all", "material", "finished_piece", "packaging", "supply"].map((k) => (
           <button key={k} type="button" onClick={() => setKindFilter(k)}
@@ -510,7 +526,7 @@ export function InventoryPage() {
         {/* List */}
         <aside className={`border-b border-border p-4 lg:block lg:border-b-0 lg:border-r ${itemId ? "hidden" : "block"}`}>
           <p className="px-1 pb-3 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-            {loading ? "Loading inventory" : `${visible.length} lot${visible.length === 1 ? "" : "s"}`}
+            {loading ? "Loading inventory" : `${visible.length} batch${visible.length === 1 ? "" : "es"}`}
           </p>
           <div className="max-h-[480px] space-y-1 overflow-auto">
             {visible.map((lot) => {
@@ -522,6 +538,11 @@ export function InventoryPage() {
                   <span className="min-w-0">
                     <span className="block truncate text-[11px] font-medium text-foreground">{lot.description}</span>
                     <span className="block truncate text-[11px] text-muted-foreground">{lot.code} · {KIND_LABELS[lot.kind] ?? lot.kind}</span>
+                    {lot.kind === "finished_piece" && lot.catalogPieceName && (
+                      <span className="mt-0.5 block truncate text-[10px] text-accent">
+                        {lot.catalogPieceSku} — {lot.catalogPieceName}
+                      </span>
+                    )}
                   </span>
                   <span className="flex-shrink-0 text-right">
                     <span className="block font-mono text-[11px] text-foreground">{qty} {lot.unit}</span>
@@ -530,7 +551,7 @@ export function InventoryPage() {
                 </button>
               );
             })}
-            {!loading && visible.length === 0 && <p className="border border-dashed border-border p-6 text-center text-[12px] text-muted-foreground">No lots match this search.</p>}
+            {!loading && visible.length === 0 && <p className="border border-dashed border-border p-6 text-center text-[12px] text-muted-foreground">No batches match this search.</p>}
           </div>
         </aside>
 
@@ -539,13 +560,13 @@ export function InventoryPage() {
           {!selected ? (
             <div className="flex h-full min-h-80 flex-col items-center justify-center p-8 text-center">
               <Package size={24} className="text-accent" />
-              <p className="mt-3 font-serif text-lg text-foreground">No lot selected</p>
-              <p className="mt-1 text-[12px] text-muted-foreground">Receive the first lot to begin tracking inventory.</p>
+              <p className="mt-3 font-serif text-lg text-foreground">No batch selected</p>
+              <p className="mt-1 text-[12px] text-muted-foreground">Receive the first batch to begin tracking inventory.</p>
             </div>
           ) : (
             <>
               <header className="flex flex-col gap-4 border-b border-border p-5 sm:flex-row sm:items-start sm:justify-between">
-                <button type="button" onClick={() => navigate("/inventory")} className="min-h-11 self-start text-[11px] uppercase tracking-[0.16em] text-muted-foreground lg:hidden">← All lots</button>
+                <button type="button" onClick={() => navigate("/inventory")} className="min-h-11 self-start text-[11px] uppercase tracking-[0.16em] text-muted-foreground lg:hidden">← All batches</button>
                 <div>
                   <h3 className="font-serif text-xl text-foreground">{selected.description}</h3>
                   <p className="mt-1 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{selected.code} · {KIND_LABELS[selected.kind] ?? selected.kind}</p>
@@ -602,7 +623,7 @@ export function InventoryPage() {
         </section>
       </div>
 
-      <Modal open={editor === "new-lot"} onClose={() => setEditor(null)} title="Receive inventory lot" subtitle="Record a new lot with its initial receipt." width={560}>
+      <Modal open={editor === "new-batch"} onClose={() => setEditor(null)} title="Receive inventory batch" subtitle="Record a new batch with its initial receipt." width={560}>
         <LotForm
           initial={EMPTY_LOT_FORM}
           saving={saving}

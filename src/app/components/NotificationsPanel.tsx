@@ -167,7 +167,7 @@ export function NotificationsPanel({
   onSettingsClick: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-14 bg-black/30" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-14" style={{ background: "rgba(23,20,15,0.45)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)" }} onClick={onClose}>
       <section
         role="dialog"
         aria-modal="true"

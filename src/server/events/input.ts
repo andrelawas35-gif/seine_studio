@@ -62,7 +62,7 @@ export const createEventBudgetLineInput = z.object({
 });
 
 export const createEventAllocationInput = z.object({
-  inventoryLotId: z.string().uuid("Inventory lot is required"),
+  inventoryLotId: z.string().uuid("Inventory batch is required"),
   sourceLocationId: z.string().uuid("Source location is required"),
   plannedQuantity: z.string().regex(/^\d+(\.\d{1,4})?$/, "Quantity must be positive"),
   notes: z.string().trim().max(1000).optional().or(z.literal("")),

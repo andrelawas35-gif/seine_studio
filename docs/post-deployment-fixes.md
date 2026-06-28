@@ -150,6 +150,89 @@ get-session, token, and `/api/me` all succeed through the proxy.
 
 ---
 
+## Data Interconnectedness (June 28, 2026)
+
+Cross-component data wiring pass — components were rendering disconnected or
+studio-wide data instead of the live, correctly-scoped records.
+
+### Issue: Overview dashboard blank in production
+
+**Root cause:** `OverviewPage` computed every metric off `INITIAL_PROJECTS`/
+`INITIAL_CLIENTS`, which are empty arrays (`data.ts`). Even in API mode the
+dashboard never fetched anything, so it was permanently blank. It also depended
+on fixture-only fields (`project.price`, `downpaid`) that don't exist on
+`ProjectRecord`.
+
+**Fix:** Rewrote `OverviewPage` to fetch live `ProjectRecord[]` + `ClientRecord[]`
+(fixture fallback off-API) with loading/error states. Replaced the fixture-only
+metrics (`Pipeline Revenue`, `Awaiting DP`) with `Due This Week` and `Overdue`,
+both derived from `targetDate`. Removed the redundant Price column from Recent
+Projects. Uses the real 11-stage model.
+
+**File:** `src/app/pages/CorePages.tsx`
+
+### Issue: Event finance summed all studio invoices
+
+**Root cause:** The Events finance tab fetched `/api/invoices?limit=200` (every
+invoice) and summed them onto the event — the code comment admitted "invoices API
+may not support eventId filter yet." Expenses were already event-filtered.
+
+**Fix:** Added an `eventId` query param to the invoices list endpoint that joins
+through `projects` and filters `projects.eventId = :eventId` (invoices reach an
+event via their project). Finance tab now calls `/api/invoices?eventId=…`.
+
+**Note:** This links invoices to an event *through their project*. A walk-up sale
+at a pop-up with no project is not counted — would need a direct `invoices.event_id`
+column (migration) if ad-hoc event sales become a thing.
+
+**Files:** `functions/api/invoices/index.ts`, `src/app/components/EventsPage.tsx`
+
+### Enhancement: Overview calendar (deadlines, not just events)
+
+The "Event calendar" in the Events page was only a vertical list of events; the
+`react-day-picker` primitive at `ui/calendar.tsx` was unused. Added a real
+calendar to the Overview overlaying **all dated work**: project deadlines
+(`targetDate`), events (`startsAt`), unpaid invoice due dates (`dueDate`), and
+open repair promises (`promisedDate`). Month grid on desktop, agenda list on
+mobile (mobile-first). Calendar sources fetch via `Promise.allSettled` so a
+failure there never blanks the dashboard. An Events & Pop-ups list sits at the
+bottom of the Overview.
+
+**Files:** `src/app/components/OverviewCalendar.tsx` (new), `src/app/pages/CorePages.tsx`
+
+### Issue: Accounting + Reply Templates fed empty fixtures
+
+**Root cause:** `App.tsx` passed `INITIAL_PROJECTS`/`INITIAL_CLIENTS`/
+`INITIAL_INVENTORY` (empty/static) as props to `AccountingPage` and
+`ReplyTemplatesPage`. In production this meant the pricing calculator and
+reply-template pickers were empty, and Accounting's "Pipeline Revenue" stat read
+the nonexistent `project.price` (always ₱0). The invoice/quote/expense *modals*
+are fixtures-mode-only (those tabs are hidden in API mode), so only the pricing
+calculator, pickers, and the pipeline stat were affected in production.
+
+**Fix:** New `useReferenceData` hook fetches live projects/clients/inventory and
+adapts them to the fixture shapes those components already consume (so the
+calculator and pickers stay unchanged). Both pages now call the hook instead of
+receiving props; `App.tsx` renders them without props. Replaced the broken
+"Pipeline Revenue" stat with a real **Open Quotes** count derived from the quotes
+source records (`sent` + `accepted`).
+
+**Files:** `src/app/components/useReferenceData.ts` (new),
+`src/app/components/AccountingPage.tsx`, `src/app/components/ReplyTemplatesPage.tsx`,
+`src/app/App.tsx`
+
+### Remaining (shaped, not yet built)
+
+- **Shared client/location cache** — pages still re-fetch `/clients`
+  independently; `useReferenceData` is a first step toward consolidating this.
+- **Linked-projects panel on Events** + retire the through-project invoice link
+  for a direct column if walk-up sales matter.
+- **Derived client/project money** — surface `Client` lifetime spend and project
+  price/balance from invoices on their detail panels (the fixture adapter
+  currently zeroes these).
+
+---
+
 ## UI/UX Fixes
 
 ### Issue: Bell icon invisible on fresh install
@@ -246,3 +329,268 @@ This runs `build:api` (which sets `VITE_DATA_MODE=api` + `VITE_NEON_AUTH_URL`) t
 
 ### Production URL
 https://seine-studio.pages.dev
+
+---
+
+## Remaining Work (June 28, 2026)
+
+### P2 — Linked-projects panel on Events + direct `invoices.event_id`
+**Status:** ✅ Complete (June 28)
+**Issue:** (a) Event detail didn't show projects linked via `projects.event_id`. (b) Invoices endpoint joined through `projects.event_id` instead of using the direct `invoices.event_id` column (added in Wave 0 M0.4).
+**Fix:** Extended `GET /api/events/:eventId` to return `linkedProjects`. Updated `GET /api/invoices` to filter by `invoices.event_id` directly and removed the `projects` join. Added linked-projects panel to EventsPage overview tab with stage dots, project numbers, and client names.
+**Files:** `functions/api/events/[eventId].ts`, `functions/api/invoices/index.ts`, `src/app/events.ts`, `src/app/components/EventsPage.tsx`
+
+### P3 — Derived client/project money
+**Status:** ✅ Complete (June 28)
+**Issue:** Client lifetime spend and project balance were zeroed in `useReferenceData` (`totalSpent: 0`, `price: 0`). The detail pages showed no financial data.
+**Fix:** Extended `GET /api/clients/:id` to return `finance: { lifetimeSpend, balanceDue }` (sum of payments / unpaid invoices). Extended `GET /api/projects/:id` to return `finance: { agreedPriceCents, invoicedCents, paidCents }` (from accepted quote + invoices). ClientsPage now shows Lifetime Spend + Balance Due cards. ProjectsPage now shows Financial Summary grid (Agreed Price, Invoiced, Paid, Balance).
+**Files:** `functions/api/clients/[clientId].ts`, `functions/api/projects/[projectId].ts`, `src/app/components/ClientsPage.tsx`, `src/app/components/ProjectsPage.tsx`
+
+### P1 — Shared client/location cache
+**Status:** Deferred to Wave 5/6
+**Issue:** Pages re-fetch `/clients` and `/locations` independently. `useReferenceData` (added for AccountingPage + ReplyTemplatesPage) is a first step, but doesn't cover EventsPage, QuotesPage, InvoicesPage, or CertificatesPage which also fetch clients.
+**Plan:** Create a `ReferenceDataProvider` context when 360 views (Wave 5) drive the need for a single source of truth. Current independent fetches are correct, just not optimal.
+
+---
+
+## Drizzle-ORM Cloudflare Workers Bundler Bug (June 28, 2026)
+
+### Issue: "The request could not be completed" on inventory, events, and other API endpoints
+
+**Root cause:** `db.select({ specific: columns }).from(table).leftJoin(...)` in the Cloudflare
+Pages Functions bundled environment triggers `orderSelectedFields` → `Object.entries()` on
+`undefined`, producing `TypeError: Cannot convert undefined or null to object`. This only
+manifests at runtime in the deployed worker — TypeScript compiles clean locally.
+
+**Fix pattern (applied across 17 files):**
+```ts
+// ❌ Before (broken in Cloudflare Workers):
+const [records] = await db.select({
+  id: tableA.id,
+  joinedName: tableB.name,
+}).from(tableA).leftJoin(tableB, eq(tableA.bId, tableB.id));
+
+// ✅ After (fixed):
+const rows = await db.select().from(tableA).leftJoin(tableB, eq(tableA.bId, tableB.id));
+const records = rows.map(r => ({
+  id: r.table_a.id,
+  joinedName: r.table_b?.name ?? null,
+}));
+```
+
+**Aggregate queries with `groupBy`:** `db.select()` + `.groupBy()` + `.join()` produces
+invalid PostgreSQL (`SELECT * GROUP BY` not allowed). Split into separate simple queries
+and combined in JS.
+
+**Files changed (all under `functions/api/`):**
+- `inventory/index.ts`, `inventory/[lotId].ts`
+- `events/[eventId].ts`
+- `projects/index.ts`, `projects/[projectId].ts`
+- `invoices/index.ts`, `invoices/[invoiceId].ts`
+- `quotes/index.ts`, `quotes/[quoteId].ts`
+- `expenses/index.ts`, `expenses/[expenseId].ts`
+- `certificates/index.ts`, `certificates/[certId].ts`
+- `repairs/index.ts`, `repairs/[ticketId].ts`
+- `catalog/[pieceId].ts`
+- `clients/[clientId].ts`
+
+**Rule:** Never use `db.select({ specific })` combined with `.join()` in Cloudflare Pages
+Functions. Always use `db.select()` and manually flatten joined rows.
+
+---
+
+## Project Edit 500 Error (June 28, 2026)
+
+### Issue: Editing a project showed "The request could not be completed"
+
+**Root cause (layered):**
+
+1. **Zod transform bug** (`src/server/projects/input.ts`): `updateProjectInput` transform
+   converted `undefined` → `null` for `clientId` via `input.clientId ?? null`. Since
+   `client_id` is `.notNull()` in the schema, the handler tried setting it to null, which
+   PostgreSQL rejected.
+
+2. **Frontend sending extraneous empty fields** (`src/app/components/ProjectsPage.tsx`):
+   The form spread all values (including `projectNumber: ""`, `catalogPieceId: ""`, etc.)
+   into the PATCH body. `clientId: ""` failed Zod UUID validation because the schema
+   didn't accept empty strings for `clientId` (unlike `eventId` which had `.or(z.literal(""))`).
+
+3. **JSONB serialization** (`functions/api/projects/[projectId].ts`): Activity events
+   `before` field contained raw Drizzle Date objects. Needed `JSON.parse(JSON.stringify(...))`
+   for proper JSONB storage in the Cloudflare Workers environment.
+
+4. **CHECK constraint `projects_owner_xor`**: A project must have either a client or an
+   event. Clearing both simultaneously violates this constraint.
+
+**Fixes applied:**
+
+| File | Change |
+|------|--------|
+| `src/server/projects/input.ts` | Transform passes `undefined` through when fields aren't provided (instead of defaulting to `null`). Added `.nullable().or(z.literal(""))` for `clientId`. |
+| `src/app/components/ProjectsPage.tsx` | PATCH body now builds a clean object with only valid fields, stripping `undefined` keys and extra fields (`projectNumber`, `catalogPieceId`). |
+| `functions/api/projects/[projectId].ts` | Activity `before`/`after` now use `JSON.parse(JSON.stringify(...))` for safe JSONB storage. |
+
+---
+
+## Form UI Fixes (June 28, 2026)
+
+### Issue: New Piece form transparent / Expense form text overlapping
+
+**Root cause:**
+
+1. **Piece form**: Used a custom overlay with `style={{ background: "var(--canvas)" }}`.
+   Inline styles can't resolve CSS custom properties; `var(--canvas)` resolved to nothing,
+   rendering the form transparent. Also used `var(--ink-muted)` which doesn't exist (the
+   theme uses `--muted-foreground`).
+
+2. **Expense form**: Labels at `text-[11px]` with `mt-1` spacing caused crowding. COGS/OPEX
+   type display stacked 3 text lines with no leading control. Backdrop at `bg-black/20` was
+   too faint. No proper scroll containment — the entire panel scrolled including buttons.
+
+3. **Both forms**: Lacked proper scrollable body with pinned header/footer.
+
+**Fixes applied:**
+
+| File | Change |
+|------|--------|
+| `src/app/components.CatalogPage.tsx` | Replaced custom overlay with `Modal` component (proper `#FAF7F0` background, `rgba(23,20,15,0.45)` backdrop with blur, scrollable body). |
+| `src/app/components/ExpensesPage.tsx` | Backdrop changed to `rgba(23,20,15,0.45)` with `backdropFilter: blur(4px)`. Split into header + scrollable body (`overflow-y-auto flex-1`) + pinned footer. Labels increased to `text-[12px]`. Spacing increased: `space-y-4` → `space-y-5`, `mt-1` → `mt-1.5`, `gap-3` → `gap-4`. Input height `min-h-9` → `min-h-10`. COGS/OPEX text given `leading-[1.4]`. |
+
+---
+
+## Modal Conversion Wave (June 28, 2026)
+
+### Issue: 7 forms across 6 pages used custom `fixed inset-0 bg-black/30` overlays instead of the `Modal` component
+
+**Root cause:** Forms were built before the `Modal` component existed or were copied from older patterns. These custom overlays lacked:
+- Proper backdrop (`rgba(23,20,15,0.45)` + `blur(4px)` per design system)
+- Scrollable body with pinned header/footer — long forms couldn't scroll properly
+- Focus trap (Tab cycling within the modal)
+- Escape key dismiss
+- Body scroll lock when open
+
+**Fixes applied (all 7 converted to `<Modal>`):**
+
+| Page | Modal | Width |
+|------|-------|-------|
+| `ExpensesPage.tsx` | Log expense | 480px |
+| `CertificatesPage.tsx` | New Certificate | 520px |
+| `InvoicesPage.tsx` | Create invoice | 480px |
+| `InvoicesPage.tsx` | Record payment | 400px |
+| `QuotesPage.tsx` | Create quote | 480px |
+| `RepairsPage.tsx` | New Repair Ticket | 520px |
+| `ProjectsPage.tsx` | Bill deposit / Bill balance | 480px |
+
+Each conversion:
+- Replaced `fixed inset-0 ... bg-black/30` overlay + custom section/div with `<Modal>` component
+- Old manual header (title + X button) removed — Modal provides its own
+- Old manual footer div removed — buttons passed via `footer` prop
+- Form body becomes Modal `children`, auto-wrapped in scrollable container
+- All form field markup preserved unchanged
+
+**Bonus fix — `NotificationSettings` + `NotificationsPanel` backdrops:**
+Changed `bg-black/30` → `rgba(23,20,15,0.45)` + `backdropFilter: blur(4px)` (these are small panels, not full forms, so kept their custom layout but unified the backdrop).
+
+**Result:** Zero `bg-black/` backdrops remain in any app component. All modals share consistent backdrop, scroll behavior, and keyboard accessibility.
+
+---
+
+## Expense Type Dropdown Fix (June 28, 2026)
+
+### Issue: Expense form "Type" field was static text, not a dropdown
+
+**Root cause:** The COGS/OPEX classification was displayed as a plain `<p>` tag showing "COGS" or "OPEX" with no way to manually override. While the category auto-sets the default (`materials`/`stones`/`findings`/`packaging`/`labor` → COGS; others → OPEX), users had no way to change it if the auto-detection was wrong (e.g., "Shipping" might be COGS for a specific project).
+
+**Fix:** Converted the static text to a `<select>` dropdown with two options:
+- `COGS — Cost of Goods Sold`
+- `OPEX — Operating Expense`
+
+The `cogsManuallySet` ref (already present in the component) now tracks manual overrides. Auto-default from category still works on category change unless the user has manually toggled the type.
+
+**File:** `src/app/components/ExpensesPage.tsx`
+
+---
+
+## QuotesPage Pricing Calculator Check (June 28, 2026)
+
+### Status: ✅ Integrated
+
+The pricing calculator (`QuotePricingPanel`) is embedded in `QuotesPage.tsx` as the editable pricing editor for quotes. It renders when the quote is editable (not locked), replaces "Piece or service" free-text with `PiecePicker`, shows piece retail as benchmark beside computed price, and saves versioned pricing snapshots to the quote. Locked quotes show a read-only snapshot via `DocumentCanvas`. Decision refs: D14, D22, D28, D29, D30, D31 from the multi-agent build plan.
+
+### Issue: Pricing panel not visible — quote detail API broken (June 28, 2026)
+
+**Root cause:** `functions/api/quotes/[quoteId].ts` GET handler still used the broken
+`db.select({ specific }).from(quotes).leftJoin(clients).leftJoin(projects)` pattern that
+triggers the Drizzle Cloudflare Workers bundler bug (`TypeError: Cannot convert undefined
+or null to object`). The quote detail API silently failed, so `detail` was never populated
+on the frontend, and the pricing panel (`isEditable ? <QuotePricingPanel> : ...`) never
+rendered because there was no `detail.status` to evaluate.
+
+**Fix:** Replaced with the safe `db.select().from(quotes).leftJoin(...)` + manual mapping pattern:
+```ts
+const rows = await db.select().from(quotes)
+  .leftJoin(clients, eq(quotes.clientId, clients.id))
+  .leftJoin(projects, eq(quotes.projectId, projects.id))
+  .where(eq(quotes.id, quoteId));
+
+const row = rows[0];
+const record = row ? {
+  id: row.quotes.id,
+  clientName: row.clients?.name ?? null,
+  projectTitle: row.projects?.title ?? null,
+  // ... etc
+} : null;
+```
+
+**File:** `functions/api/quotes/[quoteId].ts`
+
+**Verification:** Quote detail API now returns `{ quoteNumber, clientName, status, versions, activity }`. Quote Q-0002 (Gayle Belvis, draft) confirmed returning with `versions: []` and `activity: [1]`. The pricing panel renders for draft/sent/viewed quotes with default cost lines when no versions exist yet.
+
+---
+
+## Drizzle Workers Bundler — Remaining Survivors (June 28, 2026)
+
+### Issue: 5 additional API endpoints still had the broken `db.select({...}).join()` pattern
+
+After the initial wave of 17 fixes (documented above), a detailed sweep found 5 more endpoints
+that were missed — all activity/revision queries joining `appUsers` or `clients`, plus one
+nonexistent column reference (`quotes.totalCents` doesn't exist on the schema).
+
+**Root cause:** The initial fix wave targeted the main data queries but missed activity-log
+queries and secondary join queries (revisions, related entities). All followed the same
+broken pattern: `db.select({ specific: table.column }).from(table).leftJoin/innerJoin(...)`.
+
+**Files fixed:**
+
+| File | Broken queries | Fix |
+|------|---------------|-----|
+| `clients/[clientId].ts` | Activity query `.innerJoin(appUsers)`, finance query `.leftJoin(payments)`, nonexistent `quotes.totalCents` column | `db.select()` + `.map()`, split finance into two simple queries, removed `totalCents` |
+| `catalog/[pieceId].ts` | Activity query `.innerJoin(appUsers)`, projects query `.innerJoin(clients)`, certificates query `.leftJoin(clients)`, repairs query `.leftJoin(clients)`, soldData query `.innerJoin(inventoryLots)` | `db.select()` + `.map()` for all five, soldData moved out of `Promise.all` (needed `linkedStock` lot IDs) |
+| `repairs/[ticketId].ts` | Activity query `.leftJoin(appUsers)` | `db.select()` + `.map()` |
+| `certificates/[certId].ts` | Activity query `.leftJoin(appUsers)`, revisions query `.leftJoin(appUsers)` | `db.select()` + `.map()` for both |
+| `inventory/[lotId].ts` | Activity query `.innerJoin(appUsers)` | `db.select()` + `.map()` |
+
+**Verification:**
+- Zero `db.select({...}).join()` patterns remain across all 29 API files (confirmed with automated sweep)
+- Client detail: returns `{ client, activity, finance: { lifetimeSpend, balanceDue }, related: { projects, quotes, invoices, repairs, certificates } }`
+- Catalog piece detail: returns linked projects, stock, certificates, repairs with client names
+- All TypeScript compiles clean
+
+---
+
+## QuotePricingPanel Stale State After Save (June 28, 2026)
+
+### Issue: Quote pricing can only be edited once — unclickable after first save
+
+**Root cause:** `QuotePricingPanel` initializes all form state via `useState(restored?.lines ?? DEFAULT_LINES)`. `useState` only reads the initial value on first mount. After saving a version, `onVersionSaved` triggers `fetchDetail` which reloads the quote detail with a new `existingSnapshot`. The `restored` useMemo recomputes, but the `useState` hooks do **not** re-initialize — they keep the old internal state. This mismatch between the new snapshot prop and the stale form state made the panel unresponsive after the first save.
+
+**Fix:** Added `key={detail.versions?.length ?? 0}` to `<QuotePricingPanel>` in `QuotesPage.tsx`. Each save increments the version count, which changes the key, which forces React to unmount the old component and mount a fresh one with state correctly initialized from the latest `existingSnapshot`.
+
+- Version 0 (no saves): `key=0` → initialized from `DEFAULT_LINES`
+- After first save: `key=1` → fresh mount, initialized from saved snapshot
+- After second save: `key=2` → fresh mount, initialized from latest snapshot
+- And so on
+
+**File:** `src/app/components/QuotesPage.tsx`
+
+**Verification:** Two test versions saved via API (v1, v2), quote detail returns both versions, component remounts cleanly on each save.

@@ -39,6 +39,7 @@ export const createInvoiceInput = z.object({
   clientId: z.string().uuid("Valid client is required"),
   projectId: z.string().uuid().optional(),
   quoteId: z.string().uuid().optional(),
+  eventId: z.string().uuid().optional(),
   currency: z.string().min(1).max(3).default("PHP"),
   subtotalCents: z.number().int().min(0),
   discountCents: z.number().int().min(0).default(0),
