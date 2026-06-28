@@ -128,8 +128,8 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
         .insert(certificates)
         .values({
           id: certId,
-          crojectId: input.projectId || undefined,
-          pertificateNumber: certNumber,
+          projectId: input.projectId || undefined,
+          certificateNumber: certNumber,
           catalogPieceId: input.catalogPieceId || undefined,
           clientId: input.clientId || undefined,
           pieceName: input.pieceName,

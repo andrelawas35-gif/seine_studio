@@ -1,5 +1,5 @@
 import { and, desc, eq, sql } from "drizzle-orm";
-import { activityEvents, clients, events, invoices, payments, projects, quotes } from "../../../src/server/db/schema";
+import { activityEvents, clients, events, invoices, payments, pricingVersions, projects, quotes } from "../../../src/server/db/schema";
 import { updateProjectInput } from "../../../src/server/projects/input";
 import { uuidParam } from "../../../src/server/inventory/input";
 import { requireUser } from "../../_shared/auth";
@@ -47,10 +47,11 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
       .orderBy(desc(activityEvents.createdAt))
       .limit(20);
 
-    // Derived financials: agreed price from accepted quote + balance from invoices
+    // Derived financials: agreed price from accepted quote's latest pricing version
     const [acceptedQuote] = await db
       .select()
       .from(quotes)
+      .leftJoin(pricingVersions, eq(quotes.pricingVersionId, pricingVersions.id))
       .where(and(eq(quotes.projectId, projectId), eq(quotes.status, "accepted")))
       .limit(1);
 
@@ -63,7 +64,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
       .where(eq(invoices.projectId, projectId));
 
     const finance = {
-      agreedPriceCents: Number(acceptedQuote?.totalCents ?? 0),
+      agreedPriceCents: Number(acceptedQuote?.pricing_versions?.suggestedPriceCents ?? 0),
       invoicedCents: invoiceSums[0]?.invoiced ?? 0,
       paidCents: invoiceSums[0]?.paid ?? 0,
     };

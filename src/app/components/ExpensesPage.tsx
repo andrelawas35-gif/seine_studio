@@ -355,6 +355,7 @@ export function ExpensesPage() {
     <>
       <MasterDetail
         hasSelection={!!selectedId}
+        onBack={() => setSelectedId(null)}
         loading={loading}
         error={error}
         isEmpty={!loading && !error && expenses.length === 0}

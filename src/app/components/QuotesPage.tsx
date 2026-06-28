@@ -280,6 +280,7 @@ export function QuotesPage() {
     <>
       <MasterDetail
         hasSelection={!!selectedId}
+        onBack={() => { setSelectedId(null); }}
         loading={loading}
         error={error}
         isEmpty={!loading && !error && quotes.length === 0}

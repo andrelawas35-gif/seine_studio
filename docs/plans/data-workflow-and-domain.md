@@ -1,14 +1,41 @@
 # Plan — Data Workflow & Domain Clarity
 
-**Status:** Planning complete (2026-06-28). Session 1 fixed the **model** (D1–D9);
-session 2 walked **each component** for workflow/UX confusion (D10–D20); session 3
-walked the **add/edit forms** for confusion and workflow alignment (D21–D24); session 4
-designed the new **Catalog / Pieces page** (D25–D27); session 5 untangled the **pricing
-calculator** (D28–D31). Recorded
-in [`CONTEXT.md`](../../CONTEXT.md) and [`ADR 0003`](../adr/0003-piece-project-invoice-model.md).
-Build plan below is sequenced in 5 phases, each shippable on its own.
+**Status:** Planning complete **and largely built** (2026-06-28). Sessions 1–5
+produced D1–D31 (model, components, add/edit forms, the Catalog page, and the pricing
+calculator); the multi-agent waves then implemented most of them on
+`codex/phase-1-foundation`. Recorded in [`CONTEXT.md`](../../CONTEXT.md) and
+[`ADR 0003`](../adr/0003-piece-project-invoice-model.md). The 5-phase plan below remains
+the reasoning of record; see **Build status** for what is shipped vs. pending.
 **Goal:** One clear workflow across all components, no redundant concepts, so the
 two-user studio always knows which record is the source of truth.
+
+## Build status (verified 2026-06-28)
+
+Audited against the codebase (`tsc` clean, `build:api` green, 28/28 tests). ✅ = verified
+in this audit; 🟡 = reported built in [`post-deployment-fixes.md`](../post-deployment-fixes.md)
+but not re-verified here; ⬜ = not yet confirmed in code.
+
+| Decision | Built | Where |
+|---|---|---|
+| D9 Catalog/Pieces page | ✅ | `CatalogPage.tsx`, routed `/catalog/:pieceId?`, in desktop+mobile nav |
+| D10 Quote→Project convert | ✅ | `QuotesPage.tsx` → `/api/quotes/convert` |
+| D11 Auto project number | ✅ | `ProjectsPage.tsx` (optional field, `PRJ-XXXX` placeholder) |
+| D13 Invoice inherits / deposit+balance | 🟡 | Bill deposit / Bill balance modals (`ProjectsPage.tsx`) |
+| D14/D22/D28/D29/D30/D31 Pricing in quote | ✅ | `QuotePricingPanel.tsx` → `/api/quotes/:id/versions`; `PiecePicker`; plain terms; retail benchmark; target-margin |
+| D16 Derived client/project money | 🟡 | `clients/[clientId].ts`, `projects/[projectId].ts` finance blocks |
+| D17 "lot" → "Stock batch" | ✅ | `InventoryPage.tsx` ("Receive inventory batch", `new-batch`) |
+| D21 Project create (no stage picker, piece) | ✅ | `ProjectsPage.tsx` (new = read-only "Inquiry default") |
+| D24 Lifecycle edit-locking | ✅ | `QuotesPage.tsx` `isLocked` (accepted/converted/declined/expired) |
+| D25/D26/D27 Catalog 360 + image + cost-estimate | ✅ | `CatalogPage.tsx` usage sections + `image_url` + cost disclaimer |
+| D5/D8 `invoices.event_id` direct | 🟡 | `invoices/index.ts`, `events/[eventId].ts` linkedProjects |
+| **D28 cleanup** — retire standalone pricing store | ✅ **done** | Deleted `PricingCalculator.tsx`, `pricingHistory.ts(.test)`, `functions/api/pricing/*`, `src/server/pricing/` |
+| D3 Repair "item description" rename | ✅ | `RepairsPage.tsx` label = "Item Description"; DB column stays `piece_description` (internal) |
+| D12 Slim stages 11→7 | ✅ | `projects.ts` — 7 canonical + cancelled side-state; `STAGE_ORDER`, `STAGE_LABELS`, `FIXTURE_STAGE_MAP` |
+| D15 Accounting = finance only | 🟡 | pricing tab removed; confirm `accountingData.ts` retired |
+| D18 Finished-piece stock → piece link | ✅ | `InventoryPage.tsx` uses `PiecePicker`; schema FK `inventory_lots.catalog_piece_id` + index |
+| D19 Expenses project/event picker + COGS | 🟡 | COGS dropdown done; confirm project/event picker |
+| D20 Event "Record sale" | ✅ | `EventsPage.tsx` imports `RecordSaleModal`; `record-sale-modal.tsx` wires stock-out + payment |
+| D23 Bill from project (Deposit/Balance) | 🟡 | per post-deployment doc |
 
 > **Multi-agent execution plan:** [`multi-agent-build-plan.md`](./multi-agent-build-plan.md)
 > maps the 5 phases below into 7 context-engineered waves with agent assignments,

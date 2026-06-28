@@ -223,6 +223,7 @@ export function RepairsPage() {
     <>
       <MasterDetail
         hasSelection={!!selectedId}
+        onBack={() => setSelectedId(null)}
         loading={loading}
         error={error}
         isEmpty={!loading && !error && records.length === 0}

@@ -90,7 +90,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
       projectNumber: r.projects.projectNumber,
       title: r.projects.title,
       stage: r.projects.stage,
-      clientName: r.clients.displayName,
+      clientName: r.clients.name,
       targetDate: r.projects.targetDate,
     }));
 

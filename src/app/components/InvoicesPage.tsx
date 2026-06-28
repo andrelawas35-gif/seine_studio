@@ -287,6 +287,7 @@ export function InvoicesPage() {
     <>
       <MasterDetail
         hasSelection={!!selectedId}
+        onBack={() => setSelectedId(null)}
         loading={loading}
         error={error}
         isEmpty={!loading && !error && invoices.length === 0}

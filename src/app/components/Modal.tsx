@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { X } from "lucide-react";
+import { useIsMobile } from "./ui/use-mobile";
 
 interface ModalProps {
   open: boolean;
@@ -13,6 +14,10 @@ interface ModalProps {
 
 export function Modal({ open, onClose, title, subtitle, children, width = 480, footer }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  // Responsive container (ADR 0005 D-UI-11): centered dialog on desktop, a
+  // full-height bottom sheet on phones so the primary action stays above the
+  // on-screen keyboard. Same component, no call-site changes.
+  const isMobile = useIsMobile();
 
   // Close on Escape key
   useEffect(() => {
@@ -82,9 +87,10 @@ export function Modal({ open, onClose, title, subtitle, children, width = 480, f
         inset: 0,
         zIndex: 1000,
         display: "flex",
-        alignItems: "center",
+        // Phone: anchor the sheet to the bottom edge, flush. Desktop: center it.
+        alignItems: isMobile ? "flex-end" : "center",
         justifyContent: "center",
-        padding: 20,
+        padding: isMobile ? 0 : 20,
       }}
     >
       {/* Backdrop */}
@@ -107,14 +113,18 @@ export function Modal({ open, onClose, title, subtitle, children, width = 480, f
         style={{
           position: "relative",
           background: "#FAF7F0",
-          borderRadius: 6,
+          // Sheet: round only the top corners. Dialog: round all four.
+          borderRadius: isMobile ? "14px 14px 0 0" : 6,
           boxShadow: "0 24px 80px rgba(23,20,15,0.25), 0 0 0 1px rgba(23,20,15,0.08)",
           width: "100%",
-          maxWidth: `min(${width}px, calc(100vw - 32px))`,
-          maxHeight: "80vh",
+          maxWidth: isMobile ? "100%" : `min(${width}px, calc(100vw - 32px))`,
+          // Sheet can grow taller than a centered dialog; body scrolls within.
+          maxHeight: isMobile ? "92vh" : "80vh",
           display: "flex",
           flexDirection: "column",
-          animation: "slideUp 0.25s cubic-bezier(0.34,1.56,0.64,1)",
+          animation: isMobile
+            ? "sheetUp 0.28s cubic-bezier(0.22,1,0.36,1)"
+            : "slideUp 0.25s cubic-bezier(0.34,1.56,0.64,1)",
         }}
       >
         {/* Header */}
@@ -169,10 +179,14 @@ export function Modal({ open, onClose, title, subtitle, children, width = 480, f
           {children}
         </div>
 
-        {/* Footer */}
+        {/* Footer — pinned below the scrollable body. On a phone it honours the
+            safe-area inset so the action sits above the home indicator and stays
+            reachable with the keyboard open. */}
         {footer && (
           <div style={{
-            padding: "12px 20px",
+            padding: isMobile
+              ? "12px 20px calc(12px + env(safe-area-inset-bottom))"
+              : "12px 20px",
             borderTop: "1px solid rgba(23,20,15,0.08)",
             display: "flex",
             gap: 8,
@@ -187,6 +201,11 @@ export function Modal({ open, onClose, title, subtitle, children, width = 480, f
       <style>{`
         @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
         @keyframes slideUp { from { opacity: 0; transform: translateY(16px) scale(0.97) } to { opacity: 1; transform: translateY(0) scale(1) } }
+        @keyframes sheetUp { from { transform: translateY(100%) } to { transform: translateY(0) } }
+        @media (prefers-reduced-motion: reduce) {
+          @keyframes slideUp { from { opacity: 0 } to { opacity: 1 } }
+          @keyframes sheetUp { from { opacity: 0 } to { opacity: 1 } }
+        }
       `}</style>
     </div>
   );

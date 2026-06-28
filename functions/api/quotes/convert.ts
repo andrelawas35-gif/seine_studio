@@ -5,7 +5,6 @@ import { requireUser } from "../../_shared/auth";
 import { createDatabase } from "../../_shared/db";
 import { parseServerEnv, type Env } from "../../_shared/env";
 import { errorResponse, getRequestId, json, readJson } from "../../_shared/http";
-import type { PagesFunction } from "@cloudflare/workers-types";
 
 const convertQuoteInput = z.object({
   quoteId: z.string().uuid(),
@@ -16,7 +15,7 @@ const convertQuoteInput = z.object({
   catalogPieceId: z.string().uuid().optional(),
 });
 
-export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
+export const onRequestPost = async ({ request, env }: { request: Request; env: Env }) => {
   const requestId = getRequestId(request);
   try {
     const serverEnv = parseServerEnv(env);

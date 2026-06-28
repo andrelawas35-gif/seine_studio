@@ -1,6 +1,6 @@
 import { asc, desc, eq, isNull } from "drizzle-orm";
 import { activityEvents, replyTemplates, replyTemplateVersions } from "../../../src/server/db/schema";
-import { createReplyTemplateInput, createReplyTemplateVersionInput } from "../../../src/server/pricing/input";
+import { createReplyTemplateInput, createReplyTemplateVersionInput } from "../../../src/server/replies/input";
 import { requireUser } from "../../_shared/auth";
 import { createDatabase } from "../../_shared/db";
 import { parseServerEnv, type Env } from "../../_shared/env";

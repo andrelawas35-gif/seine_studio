@@ -594,3 +594,85 @@ broken pattern: `db.select({ specific: table.column }).from(table).leftJoin/inne
 **File:** `src/app/components/QuotesPage.tsx`
 
 **Verification:** Two test versions saved via API (v1, v2), quote detail returns both versions, component remounts cleanly on each save.
+
+---
+
+## Dead Pricing-Calculator Island Removed (June 28, 2026)
+
+### Issue: Standalone pricing calculator + `/pricing` store left orphaned after D28
+
+The pricing flow was folded into the quote (`QuotePricingPanel`, decision D28), but the
+old standalone calculator and its separate version store were never deleted. An audit
+found them orphaned — `PricingCalculator.tsx` was imported nowhere, yet it (and only it)
+still called a **live authenticated `/pricing` API**. Tree-shaken from the bundle, so no
+runtime bug, but redundant source + an unused server surface (the exact duplication D28
+set out to retire).
+
+**Removed (verified no remaining importers first):**
+- `src/app/components/PricingCalculator.tsx`
+- `src/app/pricingHistory.ts` + `src/app/pricingHistory.test.ts`
+- `functions/api/pricing/index.ts`, `functions/api/pricing/[calculationId]/versions.ts`
+- `src/server/pricing/input.ts`
+
+**Kept (still live):** `src/app/pricing.ts` (the math module, used by `QuotePricingPanel`)
+and `src/app/pricing.test.ts`.
+
+**Verification:** `tsc` clean, `build:api` green, 28/28 tests pass.
+
+---
+
+## MasterDetail Mobile Re-Entry Bug — `onBack` Missing (June 28, 2026)
+
+### Issue: Can't re-open detail after closing — same item unclickable second time
+
+**Root cause:** `MasterDetail` uses a rising-edge detector on `hasSelection` to switch
+mobile view from list→detail. Each page with `MasterDetail` has a `selectedId` state.
+When the user taps "Back to list" on mobile, `MasterDetail`'s internal `handleBack` sets
+`mobileView` to `"list"` — but `selectedId` was never cleared, so `hasSelection` stayed
+`true`. Clicking the same item again called `setSelectedId(sameId)`, which React discards
+(same value = no re-render). `hasSelection` never transitioned `false→true`, so the
+rising-edge detector in `MasterDetail` never fired, and the detail view never re-appeared.
+
+This affected every entity type on mobile: quotes, certificates, expenses, invoices, repairs.
+
+**Fix:** Added `onBack={() => setSelectedId(null)}` to every `MasterDetail` usage. Now
+when the user taps "Back to list", `selectedId` clears → `hasSelection` goes false. The
+next tap on any item (including the same one) triggers a clean `false→true` transition,
+re-opening the detail view.
+
+**Pages fixed:**
+| Page | Status |
+|------|--------|
+| `CatalogPage` | Already had `onBack` ✅ |
+| `QuotesPage` | Added ✅ |
+| `CertificatesPage` | Added ✅ |
+| `ExpensesPage` | Added ✅ |
+| `InvoicesPage` | Added ✅ |
+| `RepairsPage` | Added ✅ |
+
+**Verification:** Browser-tested on mobile viewport: back→same item works repeatedly.
+
+---
+
+## TypeScript Compile Errors Fixed Before Deploy (June 28, 2026)
+
+### Issue: 11 type errors across 7 functions/ files blocking `npm run deploy`
+
+After deleting `src/server/pricing/input.ts` (Dead Pricing-Calculator Island cleanup),
+several type errors surfaced across the functions API layer:
+
+| File | Error | Fix |
+|------|-------|-----|
+| `functions/api/certificates/index.ts` | `crojectId` / `pertificateNumber` typos | → `projectId` / `certificateNumber` |
+| `functions/api/replies/index.ts` | Import from deleted `pricing/input` | → new `src/server/replies/input.ts` |
+| `functions/api/replies/[templateId]/versions.ts` | Import from deleted `pricing/input` | → new `src/server/replies/input.ts` |
+| `functions/api/events/[eventId].ts` | `clients.displayName` doesn't exist | → `clients.name` |
+| `functions/api/projects/[projectId].ts` | `quotes.totalCents` doesn't exist | → join `pricingVersions.suggestedPriceCents` |
+| `functions/api/catalog/[pieceId].ts` | `stockMovements.lotId` → `inventoryLotId`; `clients.displayName` → `clients.name` | 4 fixes |
+| `functions/api/quotes/convert.ts` | `PagesFunction<Env>` type mismatch with `@cloudflare/workers-types` | Removed explicit type annotation, used inline `{ request: Request; env: Env }` |
+
+**New file created:** `src/server/replies/input.ts` — extracted `createReplyTemplateInput`
+and `createReplyTemplateVersionInput` from the deleted `pricing/input`. These are reply
+template types, not pricing types, and belong in their own domain module.
+
+**Verification:** `tsc --noEmit` clean, `tsc --project functions/tsconfig.json` clean.

@@ -109,7 +109,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
         .from(stockMovements)
         .where(
           and(
-            inArray(stockMovements.lotId, lotIds),
+            inArray(stockMovements.inventoryLotId, lotIds),
             eq(stockMovements.type, "sale"),
           ),
         );
@@ -122,7 +122,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
         projectNumber: r.projects.projectNumber,
         title: r.projects.title,
         stage: r.projects.stage,
-        clientName: r.clients?.displayName ?? null,
+        clientName: r.clients?.name ?? null,
         targetDate: r.projects.targetDate,
       })),
       stockLots: linkedStock,
@@ -131,7 +131,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
         certificateNumber: r.certificates.certificateNumber,
         status: r.certificates.status,
         pieceName: r.certificates.pieceName,
-        clientName: r.clients?.displayName ?? null,
+        clientName: r.clients?.name ?? null,
         issuedAt: r.certificates.createdAt,
       })),
       repairs: linkedRepairs.map(r => ({
@@ -139,7 +139,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
         ticketNumber: r.repair_tickets.ticketNumber,
         pieceDescription: r.repair_tickets.pieceDescription,
         status: r.repair_tickets.status,
-        clientName: r.clients?.displayName ?? null,
+        clientName: r.clients?.name ?? null,
         createdAt: r.repair_tickets.createdAt,
       })),
       totalSold,

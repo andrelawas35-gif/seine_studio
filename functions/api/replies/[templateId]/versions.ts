@@ -1,6 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 import { activityEvents, replyTemplates, replyTemplateVersions } from "../../../../src/server/db/schema";
-import { createReplyTemplateVersionInput } from "../../../../src/server/pricing/input";
+import { createReplyTemplateVersionInput } from "../../../../src/server/replies/input";
 import { uuidParam } from "../../../../src/server/inventory/input";
 import { requireUser } from "../../../_shared/auth";
 import { createDatabase } from "../../../_shared/db";
