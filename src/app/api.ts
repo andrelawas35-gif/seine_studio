@@ -14,6 +14,22 @@ export class ApiError extends Error {
   }
 }
 
+import { getAuthToken } from "./auth";
+
+// Auth-enabled flag (mirrors auth.ts to avoid circular import)
+const isAuthConfigured = import.meta.env.VITE_DATA_MODE === "api" && Boolean(import.meta.env.VITE_NEON_AUTH_URL?.trim());
+
+let lastTokenRefreshPromise: Promise<string | null> | null = null;
+
+async function refreshAndGetToken(): Promise<string | null> {
+  if (!lastTokenRefreshPromise) {
+    lastTokenRefreshPromise = getAuthToken().finally(() => {
+      lastTokenRefreshPromise = null;
+    });
+  }
+  return lastTokenRefreshPromise;
+}
+
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
@@ -24,7 +40,18 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   // emit a doubled "/api/api/..." path (which 404s to HTML and breaks JSON parsing).
   const normalizedPath = path.startsWith("/api/") ? path.slice(4) : path;
 
-  const response = await fetch(`/api${normalizedPath}`, { ...init, headers });
+  let response = await fetch(`/api${normalizedPath}`, { ...init, headers });
+
+  // Token-refresh-and-retry: if we get a 401 and have auth configured, attempt
+  // a single token refresh then retry once. Prevents spurious sign-outs on
+  // expired-token responses while still catching real auth failures.
+  if (response.status === 401 && isAuthConfigured) {
+    const freshToken = await refreshAndGetToken();
+    if (freshToken) {
+      headers.set("authorization", `Bearer ${freshToken}`);
+      response = await fetch(`/api${normalizedPath}`, { ...init, headers });
+    }
+  }
 
   // A non-JSON response (e.g. an HTML 404 or SPA fallback) means we hit the wrong
   // path or the function failed before it could respond. Surface a clear error
@@ -50,4 +77,3 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
 
   return body as T;
 }
-import { getAuthToken } from "./auth";

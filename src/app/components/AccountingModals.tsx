@@ -59,7 +59,7 @@ export function InvoiceModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={isEdit ? "Edit Invoice" : "New Invoice"}
+      title={isEdit ? "Edit Invoice" : "Create invoice"}
       subtitle="Generate a professional invoice tied to a project"
       footer={<><Btn variant="secondary" onClick={onClose}>Cancel</Btn><Btn onClick={handleSave}>{isEdit ? "Save Changes" : "Create Invoice"}</Btn></>}
     >
@@ -177,7 +177,7 @@ export function QuoteModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={isEdit ? "Edit Quote" : "New Quote"}
+      title={isEdit ? "Edit Quote" : "Create quote"}
       subtitle="Send a formal price estimate before a commission begins"
       footer={<><Btn variant="secondary" onClick={onClose}>Cancel</Btn><Btn onClick={handleSave}>{isEdit ? "Save Changes" : "Create Quote"}</Btn></>}
     >

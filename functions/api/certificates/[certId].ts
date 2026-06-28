@@ -116,7 +116,7 @@ export const onRequestPatch: PagesFunction<Env> = async ({ request, env, params 
 
     // Handle status transitions
     if (body.status === "issued") {
-      const input = issueCertificateInput.parse(body);
+      issueCertificateInput.parse(body);
       const snapshot = {
         certificateNumber: existing.verificationCode,
         issuedAt: new Date().toISOString(),

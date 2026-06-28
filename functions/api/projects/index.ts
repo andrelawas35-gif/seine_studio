@@ -23,7 +23,8 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env }) => {
         )
       : undefined;
     const stageFilter = query.stage ? eq(projects.stage, query.stage) : undefined;
-    const where = and(isNull(projects.archivedAt), search, stageFilter);
+    const eventFilter = query.eventId ? eq(projects.eventId, query.eventId) : undefined;
+    const where = and(isNull(projects.archivedAt), search, stageFilter, eventFilter);
 
     const [records, [{ count }]] = await db.batch([
       db.select({

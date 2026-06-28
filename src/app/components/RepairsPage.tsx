@@ -229,7 +229,7 @@ export function RepairsPage() {
           className="inline-flex items-center gap-1.5 min-h-9 px-3 border border-border bg-card text-[12px] hover:border-accent/40 transition-colors"
         >
           <Plus size={13} />
-          New Repair Ticket
+          Log repair
         </button>
       </div>
 
@@ -588,12 +588,13 @@ function CreateRepairModal({
         aria-modal="true"
         aria-label="Create repair ticket"
         onClick={(e) => e.stopPropagation()}
-        className="bg-card border border-border shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto"
+        className="bg-card border border-border shadow-xl w-full max-w-lg mx-4 flex flex-col"
+        style={{ maxHeight: "90vh" }}
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+        <div className="flex-shrink-0 flex items-center justify-between px-5 py-4 border-b border-border">
           <div className="flex items-center gap-2">
             <Wrench size={15} style={{ color: "var(--accent)" }} />
-            <p className="text-[13px] font-medium">New Repair Ticket</p>
+            <p className="text-[13px] font-medium">Log repair</p>
           </div>
           <button type="button" onClick={onClose} className="min-h-9 min-w-9 grid place-items-center text-[11px] uppercase tracking-wider text-muted-foreground hover:text-foreground">
             ✕
@@ -601,12 +602,12 @@ function CreateRepairModal({
         </div>
 
         {error && (
-          <p className="mx-5 mt-3 text-[12px]" style={{ color: "var(--danger)" }}>
+          <p className="flex-shrink-0 mx-5 mt-3 text-[12px]" style={{ color: "var(--danger)" }}>
             {error}
           </p>
         )}
 
-        <div className="p-5 space-y-3">
+        <div className="flex-1 overflow-y-auto p-5 space-y-3" style={{ scrollbarWidth: "none" }}>
           <div>
             <label className="block text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Client *</label>
             <Combobox
@@ -709,7 +710,7 @@ function CreateRepairModal({
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 px-5 py-4 border-t border-border">
+        <div className="flex-shrink-0 flex justify-end gap-2 px-5 py-4 border-t border-border">
           <button
             type="button"
             onClick={onClose}

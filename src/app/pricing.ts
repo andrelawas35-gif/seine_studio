@@ -5,7 +5,11 @@ export type PricingLineCategory =
   | "packaging"
   | "outsourced"
   | "overhead"
-  | "other";
+  | "other"
+  | "stones_gemstones"
+  | "metal_findings"
+  | "finishing_plating"
+  | "setting_engraving";
 
 export interface PricingLine {
   id: string;
@@ -51,8 +55,14 @@ export function calculatePricing(input: PricingInput): PricingTotals {
   const totals = input.lines.reduce(
     (sum, line) => {
       const amount = lineTotalCentavos(line);
-      if (line.category === "material" || line.category === "packaging") sum.material += amount;
-      else if (line.category === "labor") sum.labor += amount;
+      if (
+        line.category === "material" ||
+        line.category === "packaging" ||
+        line.category === "stones_gemstones" ||
+        line.category === "metal_findings"
+      )
+        sum.material += amount;
+      else if (line.category === "labor" || line.category === "setting_engraving") sum.labor += amount;
       else if (line.category === "design") sum.design += amount;
       else sum.other += amount;
       return sum;

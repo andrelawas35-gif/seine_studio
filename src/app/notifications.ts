@@ -1,6 +1,8 @@
 // ─── Push notification helpers ──────────────────────────────────────────
 
-const VAPID_PUBLIC_KEY = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE4Lzxl4RBAAU9T2EV_g2XQH1wh407sxBuGRabjSgBgvNHgZhhQsEpH9yhaGkdvkMRD2xxapZfCb1qitUppiBexg";
+// VAPID keypair regenerated 2026-06-27 (raw P-256 uncompressed point, 65 bytes).
+// Private key stored as Cloudflare secret VAPID_PRIVATE_KEY.
+const VAPID_PUBLIC_KEY = "BP6khjP7gw9MpD8NJ3z3JKj2iekWZSZnLg5woUTugnJ-D9oNshJLWD6TQwkLvf7IpT3aLKPV7mt_ebG8rIhRdfI";
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -51,7 +53,9 @@ export async function subscribeToPush(): Promise<PushSubscription> {
     if (msg.includes("permission")) {
       throw new Error("Notification permission was denied. Go to Settings → Safari → Notifications to allow.");
     }
-    throw new Error(`Push subscription failed: ${msg}. Make sure the app is installed to your Home Screen.`);
+    // Surface the browser's actual error (e.g. invalid server key format) instead of
+    // a generic "Push subscription failed" prefix that hides the real cause.
+    throw new Error(msg.endsWith(".") ? msg : `${msg}.`);
   }
 }
 

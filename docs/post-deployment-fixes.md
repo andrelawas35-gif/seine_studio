@@ -208,6 +208,49 @@ get-session, token, and `/api/me` all succeed through the proxy.
 
 **File:** `package.json`
 
+### Issue: Push subscription fails — "applicationServerKey must contain a valid P-256 public key"
+
+**Status:** Diagnosed, fix pending (tracked in the post-deployment polish plan).
+
+**Symptom:** Subscribing to push throws `applicationServerKey must contain a valid
+P-256 public key`. The error then gets wrapped by `subscribeToPush()` with the
+misleading suffix "Make sure the app is installed to your Home Screen"
+(`src/app/notifications.ts:54`) — that text is generic catch-block copy, not the
+real cause.
+
+**Root cause:** `VAPID_PUBLIC_KEY` in `src/app/notifications.ts` is in the wrong
+format. Decoded, it is **91 bytes starting with `0x30`** (an ASN.1/DER SPKI-wrapped
+key). The Web Push API requires the **raw uncompressed P-256 point: 65 bytes
+starting with `0x04`**, base64url-encoded (~87 chars). The DER wrapper is rejected.
+
+**Fix (planned):** Generate a proper VAPID keypair (e.g. `web-push generate-vapid-keys`)
+and use the raw base64url public key in `notifications.ts`; store the private key as
+a Cloudflare secret for any future server-side send. Also replace the misleading
+catch-block suffix with the real error. Note: there is currently **no server-side
+push *send*** implementation in `functions/` — only the subscription table and a
+client-side daily reminder. Real server push is a separate, larger effort.
+
+### Issue: App intermittently bounces to the sign-in page and back mid-session
+
+**Status:** Diagnosed, fix pending (tracked in the post-deployment polish plan).
+
+**Symptom:** While interacting with the app, it briefly redirects to the sign-in
+screen and then returns to where you were.
+
+**Root cause:** The `/api/me` authorization effect in `src/app/App.tsx` (~line 414)
+treats *any* failure as a sign-out: on a non-403 error it calls
+`setAuthorizedRole(null)` **and** `await signOut()`. The auth gate then renders
+`<SignInPage>` whenever `authorizedRole` is null. Because the bearer token from
+`/token` is short-lived, an expired token (or a transient network/500 blip) makes
+the next `/me` fail → the user is force-signed-out → SignInPage shows → the
+first-party session cookie is still valid → re-auth succeeds → back to the app.
+
+**Fix (planned):** Only drop the session on an explicit `403` (unauthorized email)
+or a `401` that persists after one token-refresh retry. Transient errors
+(network, 5xx, expired token) should refresh the token and retry the request
+rather than calling `signOut()`. Do not clear `authorizedRole` on transient
+failures.
+
 ---
 
 ## Database

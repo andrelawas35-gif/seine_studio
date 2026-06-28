@@ -1,5 +1,5 @@
-import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
-import { activityEvents, clients, quotes, quoteVersions } from "../../../src/server/db/schema";
+import { and, desc, eq, or, sql } from "drizzle-orm";
+import { activityEvents, clients, quotes } from "../../../src/server/db/schema";
 import { createQuoteInput } from "../../../src/server/finance/input";
 import { requireUser } from "../../_shared/auth";
 import { createDatabase } from "../../_shared/db";
@@ -62,7 +62,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     const quoteId = crypto.randomUUID();
     const activityId = crypto.randomUUID();
-    const now = new Date();
 
     const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(quotes);
     const quoteNumber = `Q-${String(count + 1).padStart(4, "0")}`;

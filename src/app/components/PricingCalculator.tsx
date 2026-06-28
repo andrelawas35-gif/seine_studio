@@ -115,6 +115,10 @@ const CATEGORY_LABEL: Record<PricingLineCategory, string> = {
   outsourced: "Outsourced",
   overhead: "Overhead",
   other: "Other",
+  stones_gemstones: "Stones & Gemstones",
+  metal_findings: "Metal & Findings",
+  finishing_plating: "Finishing & Plating",
+  setting_engraving: "Setting & Engraving",
 };
 
 const makeId = () => globalThis.crypto?.randomUUID?.() ?? `line-${Date.now()}-${Math.random()}`;
@@ -221,7 +225,10 @@ export function PricingCalculator({ projects, clients, inventory, onPrepareQuote
   const [pieceName, setPieceName] = useState("Custom creation");
   const [projectId, setProjectId] = useState("");
   const [clientName, setClientName] = useState("");
-  const [lines, setLines] = useState<PricingLine[]>(DEFAULT_LINES);
+  const [lines, setLines] = useState<PricingLine[]>(() => {
+    if (import.meta.env.VITE_DATA_MODE === "api") return [];
+    return DEFAULT_LINES;
+  });
   const [markupType, setMarkupType] = useState<PricingMarkup["type"]>("fixed");
   const [markupValue, setMarkupValue] = useState(1700);
   const [discountCentavos, setDiscountCentavos] = useState(0);
@@ -232,6 +239,9 @@ export function PricingCalculator({ projects, clients, inventory, onPrepareQuote
   const [savedCalcs, setSavedCalcs] = useState<SavedCalculation[]>([]);
   const [activeCalcId, setActiveCalcId] = useState<string | null>(null);
   const [draftSaving, setDraftSaving] = useState(false);
+  const [events, setEvents] = useState<Array<{ id: string; name: string }>>([]);
+  const [selectedEventId, setSelectedEventId] = useState("");
+  const [selectedCatalogPieceId, setSelectedCatalogPieceId] = useState("");
 
   useEffect(() => {
     localStorage.setItem(HISTORY_KEY, JSON.stringify(versions));
@@ -242,9 +252,30 @@ export function PricingCalculator({ projects, clients, inventory, onPrepareQuote
     apiRequest<{ data: SavedCalculation[] }>("/pricing")
       .then((res) => setSavedCalcs(res.data))
       .catch(() => {});
+    apiRequest<{ data: Array<{ id: string; name: string }> }>("/events?limit=50")
+      .then((res) => setEvents(res.data.filter((e) => e.id)))
+      .catch(() => {});
   }, []);
 
-  const suggestions = useMemo<MaterialSuggestion[]>(() => [
+  // Cost catalog entries (fetched from E5's API for Wave 3)
+  const [catalogEntries, setCatalogEntries] = useState<MaterialSuggestion[]>([]);
+  useEffect(() => {
+    if (import.meta.env.VITE_DATA_MODE !== "api") return;
+    apiRequest<{ entries: Array<{ id: string; costType: string; description: string; unit: string; unitCostCents: number }> }>("/cost-catalog")
+      .then((res) =>
+        setCatalogEntries(
+          res.entries.map((e) => ({
+            id: e.id,
+            name: e.description,
+            unit: e.unit,
+            unitCostCentavos: e.unitCostCents,
+            source: "Cost catalog",
+            category: e.costType as PricingLineCategory,
+          })),
+        ),
+      )
+      .catch(() => {});
+  }, []);  const suggestions = useMemo<MaterialSuggestion[]>(() => [
     ...inventory.map((item) => ({
       id: item.id,
       name: item.name,
@@ -254,8 +285,9 @@ export function PricingCalculator({ projects, clients, inventory, onPrepareQuote
       available: `${item.quantity} ${item.unit}`,
       category: "material" as const,
     })),
-    ...TRACKER_SUGGESTIONS,
-  ], [inventory]);
+    ...catalogEntries,
+    ...(catalogEntries.length === 0 ? TRACKER_SUGGESTIONS : []),
+  ], [inventory, catalogEntries]);
 
   const markup: PricingMarkup = markupType === "fixed"
     ? { type: "fixed", amountCentavos: pesosToCentavos(markupValue) }
@@ -388,6 +420,27 @@ export function PricingCalculator({ projects, clients, inventory, onPrepareQuote
     setTrackerBlocks([]);
   };
 
+  const saveEventPrice = async () => {
+    if (!selectedEventId || !selectedCatalogPieceId || totals.sellingPriceCentavos <= 0) return;
+    try {
+      await apiRequest("/events/" + selectedEventId + "/pricing", {
+        method: "POST",
+        body: JSON.stringify({
+          catalogPieceId: selectedCatalogPieceId,
+          priceCents: totals.sellingPriceCentavos,
+          notes: pieceName.trim() || undefined,
+        }),
+      });
+      // Clear event selection after saving
+      setSelectedEventId("");
+      setSelectedCatalogPieceId("");
+      // Could show toast here, but Toast context isn't directly available
+      // in PricingCalculator — the parent AccountingPage handles toasts
+    } catch {
+      // Silently fail; user can retry
+    }
+  };
+
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -471,6 +524,57 @@ export function PricingCalculator({ projects, clients, inventory, onPrepareQuote
           <input value={pieceName} onChange={(event) => setPieceName(event.target.value)} className="min-h-10 w-full border border-border bg-card px-3 text-[11px] outline-none focus:ring-1 focus:ring-accent/50" />
         </label>
       </section>
+
+      {events.length > 0 && (
+        <details className="border border-accent/20 bg-accent/[0.03] p-4">
+          <summary className="cursor-pointer text-[11px] uppercase tracking-[0.18em] text-accent">
+            Set event price
+          </summary>
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <label className="space-y-1">
+              <span className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Event</span>
+              <select
+                value={selectedEventId}
+                onChange={(e) => setSelectedEventId(e.target.value)}
+                className="min-h-10 w-full border border-border bg-card px-2 text-[11px] outline-none focus:ring-1 focus:ring-accent/50"
+              >
+                <option value="">Select event</option>
+                {events.map((e) => (
+                  <option key={e.id} value={e.id}>{e.name}</option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-1">
+              <span className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Catalog Piece</span>
+              <select
+                value={selectedCatalogPieceId}
+                onChange={(e) => setSelectedCatalogPieceId(e.target.value)}
+                className="min-h-10 w-full border border-border bg-card px-2 text-[11px] outline-none focus:ring-1 focus:ring-accent/50"
+              >
+                <option value="">Select piece</option>
+                {inventory
+                  .filter((item) => item.category && !["Gold", "Silver", "Gemstones", "Pearls", "Findings"].includes(item.category))
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>{item.name} ({item.id})</option>
+                  ))}
+              </select>
+            </label>
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={saveEventPrice}
+                disabled={!selectedEventId || !selectedCatalogPieceId || totals.sellingPriceCentavos <= 0}
+                className="min-h-10 w-full border border-accent bg-accent/5 px-3 text-[11px] uppercase tracking-wider text-accent disabled:opacity-35 disabled:cursor-not-allowed hover:bg-accent/10"
+              >
+                Save event price · {formatCentavos(totals.sellingPriceCentavos)}
+              </button>
+            </div>
+          </div>
+          <p className="mt-2 text-[10px] text-muted-foreground">
+            Event prices are independent of regular pricing. An item with no event price is not sold at the regular price by default. Set prices per piece for each event.
+          </p>
+        </details>
+      )}
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(280px,0.8fr)]">
         <section className="space-y-3">

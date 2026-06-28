@@ -1,6 +1,6 @@
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type Page = "overview" | "projects" | "clients" | "inventory" | "events" | "quotes" | "invoices" | "expenses" | "accounting" | "replies" | "certificates" | "repairs";
+export type Page = "overview" | "projects" | "clients" | "inventory" | "events" | "quotes" | "invoices" | "expenses" | "accounting" | "replies" | "certificates" | "repairs" | "settings" | "consignment";
 export type Stage = "Inquiry" | "Design" | "Production" | "QA" | "Delivery" | "Paid";
 export type ProjectType = "Commission" | "Collection";
 export type StockStatus = "Sufficient" | "Low" | "Out";

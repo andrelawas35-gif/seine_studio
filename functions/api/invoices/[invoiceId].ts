@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { activityEvents, clients, invoices, payments, projects } from "../../../src/server/db/schema";
 import { updateInvoiceStatusInput } from "../../../src/server/finance/input";
 import { requireUser } from "../../_shared/auth";

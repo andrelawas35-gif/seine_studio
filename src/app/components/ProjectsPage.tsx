@@ -81,7 +81,8 @@ function ProjectForm({
     setError(null);
     if (!values.title.trim()) { setError("Project title is required."); return; }
     if (!values.projectNumber.trim()) { setError("Project number is required."); return; }
-    if (!values.clientId) { setError("Client is required."); return; }
+    if (!values.clientId && !values.eventId) { setError("Link the project to a client or an event."); return; }
+    if (values.clientId && values.eventId) { setError("A project belongs to a client or an event — not both."); return; }
     try {
       await onSave(values);
     } catch (caught) {
@@ -123,13 +124,14 @@ function ProjectForm({
       <Field label="Title" required>
         <Input aria-label="Title" value={values.title} onChange={(e) => set("title", e.target.value)} placeholder="Custom pearl necklace" maxLength={200} />
       </Field>
-      <Field label="Client" required>
+      <p className="text-[11px] text-muted-foreground">Link this project to a client <span className="font-medium">or</span> an event — one, not both.</p>
+      <Field label="Client">
         <Combobox
           aria-label="Client"
           value={values.clientId}
-          onValueChange={(v) => set("clientId", v)}
+          onValueChange={(v) => setValues((current) => ({ ...current, clientId: v, eventId: v ? "" : current.eventId }))}
           options={clients.map((c) => ({ value: c.id, label: c.name }))}
-          placeholder="Select a client"
+          placeholder={values.eventId ? "Linked to an event" : "Select a client"}
           searchPlaceholder="Search clients..."
         />
       </Field>
@@ -137,9 +139,9 @@ function ProjectForm({
         <Combobox
           aria-label="Event"
           value={values.eventId}
-          onValueChange={(v) => set("eventId", v)}
+          onValueChange={(v) => setValues((current) => ({ ...current, eventId: v, clientId: v ? "" : current.clientId }))}
           options={events.map((e) => ({ value: e.id, label: e.name }))}
-          placeholder="Link to an event (optional)"
+          placeholder={values.clientId ? "Linked to a client" : "Select an event"}
           searchPlaceholder="Search events..."
         />
       </Field>
@@ -381,7 +383,7 @@ export function ProjectsPage() {
             <Download size={13} /> JSON
           </button>
           <button type="button" onClick={() => setEditor("new")} className="inline-flex min-h-11 items-center justify-center gap-2 bg-foreground px-4 text-[12px] uppercase tracking-[0.16em] text-background">
-            <Plus size={13} /> New project
+            <Plus size={13} /> Create project
           </button>
         </div>
       </div>
@@ -490,7 +492,7 @@ export function ProjectsPage() {
         </section>
       </div>
 
-      <Modal open={editor !== null} onClose={() => setEditor(null)} title={editor === "new" ? "New project" : "Edit project"} subtitle="Track a custom creation from inquiry through delivery." width={560}>
+      <Modal open={editor !== null} onClose={() => setEditor(null)} title={editor === "new" ? "Create project" : "Edit project"} subtitle="Track a custom creation from inquiry through delivery." width={560}>
         <ProjectForm
           initial={editor === "edit" && selected ? projectToForm(selected) : EMPTY_PROJECT_FORM}
           saving={saving}

@@ -237,9 +237,7 @@ export const projects = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     projectNumber: text("project_number").notNull(),
-    clientId: uuid("client_id")
-      .notNull()
-      .references(() => clients.id),
+    clientId: uuid("client_id").references(() => clients.id),
     eventId: uuid("event_id").references(() => events.id, { onDelete: "set null" }),
     title: text("title").notNull(),
     stage: projectStage("stage").notNull().default("inquiry"),
@@ -252,6 +250,10 @@ export const projects = pgTable(
     uniqueIndex("projects_number_unique").on(table.projectNumber),
     index("projects_client_idx").on(table.clientId),
     index("projects_event_idx").on(table.eventId),
+    check(
+      "projects_owner_xor",
+      sql`(${table.clientId} is not null and ${table.eventId} is null) or (${table.clientId} is null and ${table.eventId} is not null)`,
+    ),
   ],
 );
 
@@ -775,5 +777,144 @@ export const pushSubscriptions = pgTable(
       "push_subscriptions_reminder_hour_range",
       sql`${table.reminderHour} between 0 and 23`,
     ),
+  ],
+);
+
+// ── Wave 2: Cost type enum (closed — matches E3's PricingLineCategory exactly) ──
+// Controller-enforced parity with src/app/pricing.ts PricingLineCategory union.
+export const costType = pgEnum("cost_type", [
+  "material",
+  "labor",
+  "design",
+  "packaging",
+  "outsourced",
+  "overhead",
+  "other",
+  "stones_gemstones",
+  "metal_findings",
+  "finishing_plating",
+  "setting_engraving",
+]);
+
+// ── Settings (tunable parameters — ADR-0003) ────────────────────────────────
+
+export const settings = pgTable(
+  "settings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    key: text("key").notNull(),
+    value: text("value").notNull(),
+    description: text("description"),
+    updatedBy: uuid("updated_by")
+      .notNull()
+      .references(() => appUsers.id),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("settings_key_unique").on(table.key)],
+);
+
+// ── Cost Catalog (reusable cost lines — ADR-0003) ───────────────────────────
+
+export const costCatalog = pgTable(
+  "cost_catalog",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    costType: costType("cost_type").notNull(),
+    description: text("description").notNull(),
+    unit: text("unit").notNull(),
+    unitCostCents: bigint("unit_cost_cents", { mode: "number" }).notNull(),
+    isArchived: boolean("is_archived").notNull().default(false),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => appUsers.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("cost_catalog_type_idx").on(table.costType),
+    check("cost_catalog_unit_cost_nonnegative", sql`${table.unitCostCents} >= 0`),
+  ],
+);
+
+// ── Event Price List (event-specific pricing) ──────────────────────────────
+
+export const eventPriceList = pgTable(
+  "event_price_list",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    eventId: uuid("event_id")
+      .notNull()
+      .references(() => events.id, { onDelete: "cascade" }),
+    catalogPieceId: uuid("catalog_piece_id")
+      .notNull()
+      .references(() => catalogPieces.id),
+    priceCents: bigint("price_cents", { mode: "number" }).notNull(),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("event_price_list_unique").on(table.eventId, table.catalogPieceId),
+    index("event_price_list_event_idx").on(table.eventId),
+    check("event_price_list_price_nonnegative", sql`${table.priceCents} >= 0`),
+  ],
+);
+
+// ── Consignment (long-lived partner shop — ADR-0004) ─────────────────────
+
+export const consignments = pgTable(
+  "consignments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    contactName: text("contact_name"),
+    contactEmail: text("contact_email"),
+    contactPhone: text("contact_phone"),
+    address: text("address"),
+    notes: text("notes"),
+    isActive: boolean("is_active").notNull().default(true),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => appUsers.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("consignments_name_idx").on(table.name)],
+);
+
+export const consignmentCounts = pgTable(
+  "consignment_counts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    consignmentId: uuid("consignment_id")
+      .notNull()
+      .references(() => consignments.id, { onDelete: "cascade" }),
+    countedAt: timestamp("counted_at", { withTimezone: true }).notNull(),
+    notes: text("notes"),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => appUsers.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("consignment_counts_consignment_time_idx").on(table.consignmentId, table.countedAt)],
+);
+
+export const consignmentCountItems = pgTable(
+  "consignment_count_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    consignmentCountId: uuid("consignment_count_id")
+      .notNull()
+      .references(() => consignmentCounts.id, { onDelete: "cascade" }),
+    inventoryLotId: uuid("inventory_lot_id")
+      .notNull()
+      .references(() => inventoryLots.id),
+    countedQuantity: numeric("counted_quantity", { precision: 18, scale: 4 }).notNull(),
+    expectedQuantity: numeric("expected_quantity", { precision: 18, scale: 4 }),
+    discrepancyNote: text("discrepancy_note"),
+  },
+  (table) => [
+    uniqueIndex("consignment_count_items_unique").on(table.consignmentCountId, table.inventoryLotId),
+    check("consignment_count_items_quantity_nonnegative", sql`${table.countedQuantity} >= 0`),
   ],
 );

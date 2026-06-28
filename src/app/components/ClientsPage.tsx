@@ -346,7 +346,7 @@ export function ClientsPage() {
             <Download size={13} /> JSON
           </button>
           <button type="button" onClick={() => setEditor("new")} className="inline-flex min-h-11 items-center justify-center gap-2 bg-foreground px-4 text-[12px] uppercase tracking-[0.16em] text-background">
-            <Plus size={13} /> New client
+            <Plus size={13} /> Add client
           </button>
         </div>
       </div>
@@ -447,7 +447,7 @@ export function ClientsPage() {
         </section>
       </div>
 
-      <Modal open={editor !== null} onClose={() => setEditor(null)} title={editor === "new" ? "New client" : "Edit client"} subtitle="Keep only details that help the studio serve the client well." width={560}>
+      <Modal open={editor !== null} onClose={() => setEditor(null)} title={editor === "new" ? "Add client" : "Edit client"} subtitle="Keep only details that help the studio serve the client well." width={560}>
         <ClientForm
           initial={editor === "edit" && selected ? clientToForm(selected) : EMPTY_CLIENT_FORM}
           saving={saving}

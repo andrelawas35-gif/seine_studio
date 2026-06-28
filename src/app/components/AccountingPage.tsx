@@ -697,7 +697,7 @@ export function AccountingPage({ projects, clients, inventory }: AccountingPageP
                 className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded transition-opacity hover:opacity-85"
                 style={{ background: "var(--foreground)", color: "var(--card)" }}
               >
-                <Plus size={11} /> New Invoice
+                <Plus size={11} /> Create invoice
               </button>
             }
           />
@@ -780,7 +780,7 @@ export function AccountingPage({ projects, clients, inventory }: AccountingPageP
                 className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded transition-opacity hover:opacity-85"
                 style={{ background: "var(--foreground)", color: "var(--card)" }}
               >
-                <Plus size={11} /> New Quote
+                <Plus size={11} /> Create quote
               </button>
             }
           />

@@ -17,7 +17,7 @@ import { Btn, Field, FormRow, Input, Modal, Select, Textarea } from "./Modal";
 import { useToast } from "./Toast";
 
 const USE_DATABASE = import.meta.env.VITE_DATA_MODE === "api";
-const TABS = ["overview", "stock", "checklist", "budget", "finance"] as const;
+const TABS = ["overview", "stock", "checklist", "budget", "finance", "pricing"] as const;
 type Tab = (typeof TABS)[number];
 type LocationOption = { id: string; name: string; type: string };
 
@@ -278,6 +278,7 @@ export function EventsPage() {
             status: "not_started" as const,
           })),
           stockSuggestions: buildStockSuggestions(),
+          eventPriceList: [],
         };
         setRecords((current) => [event, ...current]);
         setSelectedId(event.id);
@@ -400,7 +401,7 @@ export function EventsPage() {
           className="flex min-h-11 items-center justify-center gap-2 bg-foreground px-4 text-[12px] font-medium text-background"
         >
           <Plus size={14} />
-          New event
+          Create event
         </button>
       </div>
       {error ? (
@@ -485,6 +486,9 @@ export function EventsPage() {
             ) : null}
             {tab === "finance" ? (
               <Finance eventId={detail.event.id} plannedBudget={plannedBudget} revenueTarget={detail.event.revenueTargetCents} />
+            ) : null}
+            {tab === "pricing" ? (
+              <EventPricing priceList={detail.eventPriceList ?? []} />
             ) : null}
             </>)}
           </section>
@@ -1082,5 +1086,49 @@ function AllocationModal({
         </div>
       </form>
     </Modal>
+  );
+}
+
+// ─── Event Pricing Tab (Wave 3 — per-event price list) ──────────────────────
+
+function EventPricing({ priceList }: { priceList: Array<{ id: string; pieceName: string; pieceSku: string; priceCents: number; notes: string | null }> }) {
+  if (priceList.length === 0) {
+    return (
+      <ListPanel title="Event Price List">
+        <div className="px-5 py-8 text-center">
+          <p className="text-[12px] text-muted-foreground">No event-specific prices set yet.</p>
+          <p className="text-[11px] text-muted-foreground mt-1">
+            Set event prices in the Pricing Calculator (Accounting → Pricing tab) for pieces appearing at this event. An item with no event price is not sold at the regular price by default.
+          </p>
+          <a
+            href="/accounting"
+            className="mt-3 inline-block min-h-11 border border-accent px-4 text-[11px] uppercase tracking-wider text-accent hover:bg-accent/5 flex items-center justify-center"
+          >
+            Open Pricing Calculator
+          </a>
+        </div>
+      </ListPanel>
+    );
+  }
+
+  return (
+    <ListPanel title={`Event Price List (${priceList.length} ${priceList.length === 1 ? "piece" : "pieces"})`}>
+      <div className="divide-y divide-border">
+        {priceList.map((entry) => (
+          <div key={entry.id} className="flex items-center justify-between px-5 py-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] font-medium text-foreground">{entry.pieceName}</p>
+              <p className="text-[11px] text-muted-foreground font-mono">{entry.pieceSku}</p>
+              {entry.notes && (
+                <p className="text-[10px] text-muted-foreground mt-0.5">{entry.notes}</p>
+              )}
+            </div>
+            <span className="font-mono text-[13px] font-medium text-foreground tabular-nums ml-3">
+              {php(entry.priceCents)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </ListPanel>
   );
 }

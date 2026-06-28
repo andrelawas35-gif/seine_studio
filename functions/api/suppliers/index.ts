@@ -1,4 +1,4 @@
-import { and, asc, eq, ilike, isNull, or, sql } from "drizzle-orm";
+import { and, asc, ilike, isNull, or, sql } from "drizzle-orm";
 import { activityEvents, suppliers } from "../../../src/server/db/schema";
 import { createSupplierInput } from "../../../src/server/finance/input";
 import { requireUser } from "../../_shared/auth";

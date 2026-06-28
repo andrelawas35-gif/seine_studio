@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "vite build",
-    "build:api": "VITE_DATA_MODE=api VITE_NEON_AUTH_URL=/neon-auth vite build",
+    "build:api": "cross-env VITE_DATA_MODE=api VITE_NEON_AUTH_URL=/neon-auth vite build",
     "deploy": "npm run build:api && wrangler pages deploy dist --project-name seine-studio --branch main --commit-dirty=true",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
@@ -100,6 +100,7 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "4.7.0",
+    "cross-env": "^10.1.0",
     "drizzle-kit": "^0.31.10",
     "eslint": "^9.39.1",
     "prettier": "^3.8.1",

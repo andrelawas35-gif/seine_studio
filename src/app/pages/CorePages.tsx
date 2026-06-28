@@ -98,6 +98,114 @@ const recentProjectMobile: MobileCardDef<ProjectRow> = {
   ),
 };
 
+import { useEffect, useState } from "react";
+import { CalendarDays, PackageCheck } from "lucide-react";
+import { apiRequest, ApiError } from "../api";
+
+const USE_API = import.meta.env.VITE_DATA_MODE === "api";
+
+interface UpcomingEvent {
+  id: string;
+  name: string;
+  type: string;
+  stage: string;
+  startsAt: string;
+  endsAt: string;
+  studioBufferPercent: number;
+}
+
+const EVENT_STAGE_PILL: Record<string, string> = {
+  draft: "bg-muted-foreground/10 text-muted-foreground border-muted-foreground/20",
+  planning: "bg-blue-50 text-blue-700 border-blue-200",
+  packing: "bg-amber-50 text-amber-700 border-amber-200",
+  ready: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  active: "bg-green-50 text-green-700 border-green-200",
+  reconciliation: "bg-violet-50 text-violet-700 border-violet-200",
+  closed: "bg-muted-foreground/5 text-muted-foreground border-muted-foreground/10",
+  cancelled: "bg-red-50 text-red-500 border-red-200",
+};
+
+function eventDate(iso: string) {
+  return new Intl.DateTimeFormat("en-PH", { month: "short", day: "numeric", timeZone: "Asia/Manila" }).format(new Date(iso));
+}
+
+// Manila-local year/month/day for an ISO instant. Returns a comparable yyyymmdd
+// number plus parts, so the calendar never drifts a day across the +08:00 offset.
+function manilaParts(iso: string) {
+  const [y, m, d] = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date(iso)).split("-").map(Number);
+  return { y, m, d, num: y * 10000 + m * 100 + d };
+}
+
+const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
+
+// Compact current-month calendar for the home screen. Days that fall within any
+// event's run are marked with a gold dot (the single permitted accent); today
+// gets a hairline ring. Calm by design — a glanceable display case, not a planner.
+function HomeEventCalendar({ events }: { events: UpcomingEvent[] }) {
+  const today = manilaParts(new Date().toISOString());
+  const { y, m } = today;
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const firstWeekday = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
+  const monthLabel = new Intl.DateTimeFormat("en-PH", { month: "long", year: "numeric", timeZone: "Asia/Manila" })
+    .format(new Date(Date.UTC(y, m - 1, 1)));
+
+  const eventDays = new Set<number>();
+  let monthEventCount = 0;
+  for (const ev of events) {
+    const s = manilaParts(ev.startsAt);
+    const e = manilaParts(ev.endsAt);
+    let touched = false;
+    for (let d = 1; d <= daysInMonth; d++) {
+      const num = y * 10000 + m * 100 + d;
+      if (num >= s.num && num <= e.num) { eventDays.add(d); touched = true; }
+    }
+    if (touched) monthEventCount++;
+  }
+
+  const cells: (number | null)[] = [
+    ...Array(firstWeekday).fill(null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+
+  return (
+    <div className="bg-card border border-border rounded p-4 sm:p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <CalendarDays size={14} className="text-[#B8975A]" />
+          <p className="text-[11px] tracking-[0.18em] uppercase text-muted-foreground">{monthLabel}</p>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          {monthEventCount === 0 ? "No events this month" : `${monthEventCount} event${monthEventCount > 1 ? "s" : ""}`}
+        </p>
+      </div>
+      <div className="grid grid-cols-7 gap-y-1.5 text-center">
+        {WEEKDAYS.map((w, i) => (
+          <span key={i} className="text-[10px] uppercase tracking-wider text-muted-foreground/60">{w}</span>
+        ))}
+        {cells.map((day, i) => {
+          if (day === null) return <span key={`e${i}`} />;
+          const isToday = day === today.d;
+          const hasEvent = eventDays.has(day);
+          return (
+            <div key={day} className="flex flex-col items-center justify-center h-8">
+              <span
+                className={`flex items-center justify-center w-7 h-7 text-[12px] font-mono rounded-full ${
+                  isToday ? "ring-1 ring-[#B8975A] text-foreground" : "text-foreground/80"
+                }`}
+              >
+                {day}
+              </span>
+              <span className={`mt-0.5 w-1 h-1 rounded-full ${hasEvent ? "bg-[#B8975A]" : "bg-transparent"}`} />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Overview Page ────────────────────────────────────────────────────────────
 
 export function OverviewPage() {
@@ -115,6 +223,22 @@ export function OverviewPage() {
     .sort((a, b) => a.due.localeCompare(b.due))
     .slice(0, 5);
 
+  // Events feed (API mode only) — powers both the home calendar and the
+  // upcoming-events list. The calendar needs the whole month, not just 5.
+  const [events, setEvents] = useState<UpcomingEvent[]>([]);
+  useEffect(() => {
+    if (!USE_API) return;
+    apiRequest<{ data: UpcomingEvent[] }>("/events?limit=100")
+      .then((res) => setEvents(res.data))
+      .catch(() => {});
+  }, []);
+
+  const now = new Date();
+  const upcomingEvents = events
+    .filter((e) => !["closed", "cancelled"].includes(e.stage) && new Date(e.endsAt) >= now)
+    .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())
+    .slice(0, 5);
+
   return (
     <div className="space-y-6 sm:space-y-7 max-w-5xl">
       <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
@@ -123,6 +247,50 @@ export function OverviewPage() {
         <MetricCard label="Total Clients" value={String(CLIENTS.length)} sub={CLIENTS.length ? "Active clients" : "Add your first client"} />
         <MetricCard label="Awaiting DP" value={String(awaitingDP)} sub="Before production" />
       </div>
+
+      {/* Event calendar — always visible so the month is glanceable */}
+      <HomeEventCalendar events={events} />
+
+      {/* Upcoming Events widget */}
+      {upcomingEvents.length > 0 && (
+        <div className="bg-card border border-border rounded p-4 sm:p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <CalendarDays size={14} className="text-[#B8975A]" />
+            <p className="text-[11px] tracking-[0.18em] uppercase text-muted-foreground">Upcoming Events & Pop-ups</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {upcomingEvents.map((event) => (
+              <div key={event.id} className="flex items-start gap-3 p-3 border border-border/60 rounded bg-muted/20">
+                <div className="flex-shrink-0 w-10 h-10 flex flex-col items-center justify-center bg-[#B8975A]/10 border border-[#B8975A]/20 rounded">
+                  <span className="text-[10px] uppercase tracking-wider text-[#B8975A] font-medium">
+                    {new Date(event.startsAt).toLocaleDateString("en-PH", { month: "short", timeZone: "Asia/Manila" }).slice(0, 3)}
+                  </span>
+                  <span className="text-[14px] font-mono font-bold text-[#B8975A] leading-none">
+                    {new Date(event.startsAt).getDate()}
+                  </span>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] font-medium text-foreground truncate">{event.name}</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    {eventDate(event.startsAt)} – {eventDate(event.endsAt)}
+                  </p>
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded border ${EVENT_STAGE_PILL[event.stage] ?? "bg-muted-foreground/10 text-muted-foreground border-muted-foreground/20"}`}>
+                      {event.stage.replace("_", " ")}
+                    </span>
+                    {event.studioBufferPercent > 0 && (
+                      <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                        <PackageCheck size={10} />
+                        {event.studioBufferPercent}% buffer
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-3">
         <div className="bg-card border border-border rounded p-4 sm:p-5 lg:col-span-2">

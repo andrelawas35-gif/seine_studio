@@ -3,6 +3,7 @@ import {
   catalogPieces,
   eventBudgetLines,
   eventInventoryAllocations,
+  eventPriceList,
   events,
   eventTasks,
   inventoryLots,
@@ -28,7 +29,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
     const [event] = await db.select().from(events).where(eq(events.id, eventId)).limit(1);
     if (!event) throw new HttpError(404, "Event not found.", "event_not_found");
 
-    const [tasks, budgetLines, allocations, lots] = await Promise.all([
+    const [tasks, budgetLines, allocations, lots, priceList] = await Promise.all([
       db.select().from(eventTasks).where(eq(eventTasks.eventId, eventId)).orderBy(asc(eventTasks.sortOrder)),
       db
         .select()
@@ -68,6 +69,20 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
         .leftJoin(catalogPieces, eq(inventoryLots.catalogPieceId, catalogPieces.id))
         .where(eq(inventoryLots.kind, "finished_piece"))
         .orderBy(asc(inventoryLots.description)),
+      db
+        .select({
+          id: eventPriceList.id,
+          eventId: eventPriceList.eventId,
+          catalogPieceId: eventPriceList.catalogPieceId,
+          pieceName: catalogPieces.name,
+          pieceSku: catalogPieces.sku,
+          priceCents: eventPriceList.priceCents,
+          notes: eventPriceList.notes,
+        })
+        .from(eventPriceList)
+        .innerJoin(catalogPieces, eq(eventPriceList.catalogPieceId, catalogPieces.id))
+        .where(eq(eventPriceList.eventId, eventId))
+        .orderBy(asc(catalogPieces.name)),
     ]);
 
     const balances = new Map<string, number>();
@@ -96,7 +111,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ request, env, params })
       .map((lot) => ({ ...lot, availableQuantity: String(Math.max(0, balances.get(lot.id) ?? 0)) }))
       .filter((lot) => Number(lot.availableQuantity) > 0);
 
-    return json({ data: { event, tasks, budgetLines, allocations, stockSuggestions }, requestId });
+    return json({ data: { event, tasks, budgetLines, allocations, stockSuggestions, eventPriceList: priceList }, requestId });
   } catch (error) {
     return errorResponse(error, requestId);
   }

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, or, sql } from "drizzle-orm";
+import { and, desc, eq, or, sql } from "drizzle-orm";
 import { activityEvents, clients, invoices } from "../../../src/server/db/schema";
 import { createInvoiceInput } from "../../../src/server/finance/input";
 import { requireUser } from "../../_shared/auth";

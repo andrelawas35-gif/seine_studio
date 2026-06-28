@@ -1,17 +1,11 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import {
   activityEvents,
-  catalogPieces,
   certificates,
-  certificateRevisions,
   clients,
 } from "../../../src/server/db/schema";
 import {
   createCertificateInput,
-  updateCertificateInput,
-  issueCertificateInput,
-  revokeCertificateInput,
-  reissueCertificateInput,
 } from "../../../src/server/trust/input";
 import { requireUser } from "../../_shared/auth";
 import { createDatabase } from "../../_shared/db";

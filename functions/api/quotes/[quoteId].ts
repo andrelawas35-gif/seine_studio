@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { activityEvents, clients, projects, quotes, quoteVersions } from "../../../src/server/db/schema";
-import { convertQuoteInput, updateQuoteInput } from "../../../src/server/finance/input";
+import { updateQuoteInput } from "../../../src/server/finance/input";
 import { requireUser } from "../../_shared/auth";
 import { createDatabase } from "../../_shared/db";
 import { parseServerEnv, type Env } from "../../_shared/env";

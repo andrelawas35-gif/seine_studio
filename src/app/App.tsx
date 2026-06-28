@@ -18,6 +18,8 @@ import {
   LogOut,
   ScrollText,
   Wrench,
+  Settings,
+  Store,
 } from "lucide-react";
 import { PwaStatus } from "./components/PwaStatus";
 import { SeineLogo } from "./components/SeineLogo";
@@ -67,6 +69,12 @@ const CertificatesPage = lazy(() =>
 
 const RepairsPage = lazy(() => import("./components/RepairsPage").then((module) => ({ default: module.RepairsPage })));
 
+const SettingsPage = lazy(() => import("./components/SettingsPage").then((module) => ({ default: module.SettingsPage })));
+
+const ConsignmentPage = lazy(() =>
+  import("./components/ConsignmentPage").then((module) => ({ default: module.ConsignmentPage })),
+);
+
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
 const NAV = [
@@ -82,6 +90,8 @@ const NAV = [
   { id: "certificates", label: "Certificates", icon: ScrollText },
   { id: "repairs", label: "Repairs", icon: Wrench },
   { id: "replies", label: "Reply Templates", icon: MessageSquareText },
+  { id: "settings", label: "Settings", icon: Settings },
+  { id: "consignment", label: "Consignment", icon: Store },
 ] as const;
 
 const MOBILE_NAV = NAV.filter(({ id }) => ["overview", "projects", "inventory", "clients"].includes(id));
@@ -99,6 +109,8 @@ const PAGE_PATH: Record<Page, string> = {
   certificates: "/certificates",
   repairs: "/repairs",
   replies: "/replies",
+  settings: "/settings",
+  consignment: "/consignment",
 };
 
 function pageFromPath(pathname: string): Page {
@@ -201,7 +213,7 @@ function Sidebar({
 
 function MobileNav({ page, setPage }: { page: Page; setPage: (p: Page) => void }) {
   const [moreOpen, setMoreOpen] = useState(false);
-  const moreActive = page === "events" || page === "quotes" || page === "invoices" || page === "expenses" || page === "accounting" || page === "certificates" || page === "repairs" || page === "replies";
+  const moreActive = page === "events" || page === "quotes" || page === "invoices" || page === "expenses" || page === "accounting" || page === "certificates" || page === "repairs" || page === "replies" || page === "settings" || page === "consignment";
 
   return (
     <>
@@ -225,7 +237,7 @@ function MobileNav({ page, setPage }: { page: Page; setPage: (p: Page) => void }
                 <X className="mx-auto" size={16} />
               </button>
             </div>
-            {NAV.filter(({ id }) => id === "events" || id === "quotes" || id === "invoices" || id === "expenses" || id === "accounting" || id === "certificates" || id === "repairs" || id === "replies").map(
+            {NAV.filter(({ id }) => id === "events" || id === "quotes" || id === "invoices" || id === "expenses" || id === "accounting" || id === "certificates" || id === "repairs" || id === "replies" || id === "settings" || id === "consignment").map(
               ({ id, label, icon: Icon }) => (
                 <button
                   key={id}
@@ -295,6 +307,8 @@ const PAGE_TITLE: Record<Page, string> = {
   certificates: "Certificates",
   repairs: "Repairs",
   replies: "Reply Templates",
+  settings: "Settings",
+  consignment: "Consignment",
 };
 
 function TopBar({
@@ -384,6 +398,9 @@ export default function App() {
   const [authorizedRole, setAuthorizedRole] = useState<"owner" | "developer" | null>(null);
   const [authorizationPending, setAuthorizationPending] = useState(isAuthConfigured);
   const [authorizationError, setAuthorizationError] = useState<string | undefined>();
+  // Track transient auth failures separately so we can show a retry UI without
+  // clearing authorizedRole (which would bounce the user to SignInPage).
+  const [transientAuthError, setTransientAuthError] = useState<string | undefined>();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showNotificationSettings, setShowNotificationSettings] = useState(false);
   const [loadingTimedOut, setLoadingTimedOut] = useState(false);
@@ -410,18 +427,34 @@ export default function App() {
         if (!active) return;
         setAuthorizedRole(response.data.role);
         setAuthorizationError(undefined);
+        setTransientAuthError(undefined);
       })
       .catch(async (caught) => {
         if (!active) return;
-        const forbidden = caught instanceof ApiError && caught.status === 403;
-        const msg = caught instanceof ApiError ? caught.message : "Could not reach the server.";
-        setAuthorizationError(
-          forbidden
-            ? "This email is not authorized for Seine Studio. Only seinestudio.info@gmail.com and andrelawas35@gmail.com may sign in."
-            : msg,
-        );
-        setAuthorizedRole(null);
-        if (!forbidden) await signOut();
+        const isApiErr = caught instanceof ApiError;
+        // Only sign out and clear the role on a hard 403 (forbidden) or a 401
+        // that survived the token-refresh retry in apiRequest. On transient
+        // errors (network blip, 5xx, non-JSON), keep the current authorizedRole
+        // so the auth gate doesn't bounce to SignInPage. Show a dismissable
+        // inline error instead — the user can retry without re-authenticating.
+        const hardAuthFailure =
+          isApiErr && (caught.status === 403 || caught.status === 401);
+        const msg = isApiErr ? caught.message : "Could not reach the server.";
+
+        if (hardAuthFailure) {
+          setAuthorizationError(
+            caught.status === 403
+              ? "This email is not authorized for Seine Studio."
+              : msg,
+          );
+          setAuthorizedRole(null);
+          await signOut();
+        } else {
+          // Transient error — keep the role intact so we don't bounce the user.
+          // If role was never set (first load), show a retryable error instead
+          // of forcing SignInPage.
+          setTransientAuthError(msg);
+        }
       })
       .finally(() => {
         if (active) setAuthorizationPending(false);
@@ -470,6 +503,30 @@ export default function App() {
         </div>
       );
     }
+    // Transient auth error on first load (role never set) — show a retry
+    // screen instead of SignInPage since the session cookie is still valid.
+    if (transientAuthError && !authorizedRole) {
+      return (
+        <div
+          className="flex min-h-dvh flex-col items-center justify-center gap-4 px-6"
+          style={{ fontFamily: "'DM Sans', sans-serif", background: "var(--background)" }}
+        >
+          <p className="text-[13px] text-muted-foreground text-center max-w-xs">{transientAuthError}</p>
+          <button
+            onClick={() => {
+              setTransientAuthError(undefined);
+              setAuthorizationPending(true);
+              // Force a fresh session check — the effect will re-run on session.data?.user?.id change,
+              // but if the session hasn't changed we trigger manually.
+              window.location.reload();
+            }}
+            className="px-5 py-2.5 text-[12px] uppercase tracking-[0.12em] bg-primary text-primary-foreground"
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
     const error = loadingTimedOut
       ? "Sign-in is taking too long. Check your connection and try again."
       : authorizationError;
@@ -481,7 +538,7 @@ export default function App() {
 
   return (
     <div
-      className="flex md:h-screen md:overflow-hidden"
+      className="flex h-screen overflow-hidden"
       style={{
         fontFamily: "'DM Sans', sans-serif",
         background: "var(--background)",
@@ -494,12 +551,26 @@ export default function App() {
       <div className="flex-1 flex flex-col min-w-0 md:overflow-hidden">
         <TopBar page={page} notificationCount={notifications.length} onNotificationsClick={() => setShowNotifications(true)} />
         <main
-          className="flex-1 min-w-0 overflow-x-hidden md:overflow-y-auto p-4 pb-28 md:p-7"
+          className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden p-4 pb-28 md:p-7"
           style={{
+            overscrollBehaviorY: "contain",
             scrollbarWidth: "none",
             WebkitOverflowScrolling: "touch",
+            paddingBottom: "max(7rem, calc(7rem + env(safe-area-inset-bottom, 0px)))",
           }}
         >
+          {transientAuthError && (
+            <div className="mb-4 flex items-start gap-3 rounded-sm border border-amber-400/30 bg-amber-50/80 px-4 py-3 text-[12px] text-amber-900">
+              <span className="flex-1">{transientAuthError}</span>
+              <button
+                onClick={() => setTransientAuthError(undefined)}
+                className="text-amber-600 hover:text-amber-800"
+                aria-label="Dismiss"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+          )}
           <Routes>
             <Route path="/" element={<OverviewPage />} />
             <Route
@@ -634,6 +705,30 @@ export default function App() {
                   }
                 >
                   <RepairsPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                <Suspense
+                  fallback={
+                    <div className="h-40 animate-pulse border border-border bg-card" aria-label="Loading Settings" />
+                  }
+                >
+                  <SettingsPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/consignment/:consignmentId?"
+              element={
+                <Suspense
+                  fallback={
+                    <div className="h-40 animate-pulse border border-border bg-card" aria-label="Loading Consignment" />
+                  }
+                >
+                  <ConsignmentPage />
                 </Suspense>
               }
             />

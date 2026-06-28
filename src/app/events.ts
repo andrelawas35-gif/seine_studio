@@ -71,12 +71,23 @@ export interface EventStockSuggestion {
   costCents: number | null;
 }
 
+export interface EventPriceListEntry {
+  id: string;
+  eventId: string;
+  catalogPieceId: string;
+  pieceName: string;
+  pieceSku: string;
+  priceCents: number;
+  notes: string | null;
+}
+
 export interface EventDetail {
   event: EventRecord;
   tasks: EventTaskRecord[];
   budgetLines: EventBudgetLineRecord[];
   allocations: EventAllocationRecord[];
   stockSuggestions: EventStockSuggestion[];
+  eventPriceList: EventPriceListEntry[];
 }
 
 export interface EventFormValues {

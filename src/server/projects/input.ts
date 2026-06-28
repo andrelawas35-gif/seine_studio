@@ -7,14 +7,21 @@ const projectStageEnum = z.enum([
 
 export const createProjectInput = z.object({
   projectNumber: z.string().trim().min(1, "Project number is required").max(40),
-  clientId: z.string().uuid("Client is required"),
+  clientId: z.string().uuid().optional().or(z.literal("")),
   eventId: z.string().uuid().optional().or(z.literal("")),
   title: z.string().trim().min(1, "Title is required").max(200),
   stage: projectStageEnum.optional().default("inquiry"),
   targetDate: z.string().datetime({ offset: true }).optional().or(z.literal("")),
   brief: z.string().trim().max(5000).optional().or(z.literal("")),
-}).transform((input) => ({
+}).refine(
+  // A project belongs to exactly one owner: a client XOR an event (ADR-0005,
+  // enforced by the projects_owner_xor DB CHECK). Reject neither-or-both here so
+  // the constraint never trips at write time.
+  (input) => Boolean(input.clientId) !== Boolean(input.eventId),
+  { message: "A project must belong to a client or an event, but not both.", path: ["clientId"] },
+).transform((input) => ({
   ...input,
+  clientId: input.clientId || undefined,
   eventId: input.eventId || undefined,
   targetDate: input.targetDate || undefined,
   brief: input.brief || undefined,
@@ -40,6 +47,7 @@ export const updateProjectInput = z.object({
 export const projectListQuery = z.object({
   q: z.string().trim().max(160).default(""),
   stage: projectStageEnum.optional(),
+  eventId: z.string().uuid().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });
